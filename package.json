@@ -12,12 +12,118 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "moneyGlitch",
+          "title": "Money Glitch",
+          "icon": "media/logo.svg"
+        }
+      ]
+    },
+    "views": {
+      "moneyGlitch": [
+        {
+          "id": "stocks",
+          "name": "",
+          "icon": ""
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "money-glitch.helloWorld",
-        "title": "Hello World"
+        "command": "money-glitch.addStock",
+        "title": "添加股票",
+        "category": "Money Glitch",
+        "icon": "$(add)"
+      },
+      {
+        "command": "money-glitch.deleteStock",
+        "title": "删除股票",
+        "category": "Money Glitch",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "money-glitch.moveEntryUp",
+        "title": "上移条目",
+        "category": "Money Glitch",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "money-glitch.moveEntryDown",
+        "title": "下移条目",
+        "category": "Money Glitch",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "money-glitch.refreshStocks",
+        "title": "刷新股票",
+        "category": "Money Glitch",
+        "icon": "$(refresh)"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "money-glitch.addStock",
+          "when": "view == stocks",
+          "group": "navigation@1"
+        },
+        {
+          "command": "money-glitch.refreshStocks",
+          "when": "view == stocks",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "money-glitch.moveEntryUp",
+          "when": "view == stocks && viewItem == stock",
+          "group": "group@1"
+        },
+        {
+          "command": "money-glitch.moveEntryDown",
+          "when": "view == stocks && viewItem == stock",
+          "group": "inline@2"
+        },
+        {
+          "command": "money-glitch.deleteStock",
+          "when": "view == stocks && viewItem == stock",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "stocks",
+        "contents": "暂无数据"
+      }
+    ],
+    "configuration": {
+      "properties": {
+        "moneyGlitch.stockCodes": {
+          "type": "array",
+          "default": [
+            "sh000001",
+            "sh000300",
+            "sh000016",
+            "sh000688",
+            "hk03690",
+            "hk00700",
+            "usr_ixic",
+            "usr_dji",
+            "usr_inx",
+            "nf_IF0",
+            "nf_IH0",
+            "nf_IC0",
+            "nf_IM0",
+            "hf_OIL",
+            "hf_CHA50CFD"
+          ],
+          "description": "List of stock code"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -28,13 +134,20 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.120.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.56.1",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.56.1"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "dayjs": "^1.11.20",
+    "decimal.js": "^10.6.0",
+    "iconv-lite": "^0.7.2"
   }
 }

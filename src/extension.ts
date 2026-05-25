@@ -1,26 +1,63 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+import * as vscode from 'vscode'
+import StockProvider from './stock-provider'
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+  const provider = new StockProvider(context)
+  const treeView = vscode.window.createTreeView('stocks', {
+    treeDataProvider: provider
+  })
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "money-glitch" is now active!');
+  // status bar item to show selected stock
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
+  statusBarItem.command = 'workbench.action.showCommands'
+  statusBarItem.hide()
+  context.subscriptions.push(statusBarItem)
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('money-glitch.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from money-glitch!');
-	});
+  // const updateStatusBarFromSelection = (selection?: readonly vscode.TreeItem[]) => {
+  //   const item = selection && selection[0]
+  //   if (!item) {
+  //     statusBarItem.hide()
+  //     return
+  //   }
+  //   // StockTreeProvider's StockItem stores the raw stock under a `stock` property
+  //   const stock = (item as any).stock
+  //   if (!stock) {
+  //     statusBarItem.hide()
+  //     return
+  //   }
+  //   const last = typeof stock.last === 'number' ? stock.last.toFixed(2) : '--'
+  //   const prevClose = typeof stock.prevClose === 'number' ? stock.prevClose : 0
+  //   const change = prevClose ? ((stock.last - prevClose) / prevClose * 100).toFixed(2) : '0'
+  //   const sign = Number(change) >= 0 ? '+' : ''
+  //   statusBarItem.text = `$(graph) ${stock.name} ${last} (${sign}${change}%)`
+  //   statusBarItem.tooltip = `${stock.name} (${stock.code})`
+  //   statusBarItem.show()
+  // }
 
-	context.subscriptions.push(disposable);
+  // // update when selection changes
+  // treeView.onDidChangeSelection((e) => updateStatusBarFromSelection(e.selection))
+
+  // // update when provider refreshes (keep selected stock price up-to-date)
+  // provider.onDidChangeTreeData(() => updateStatusBarFromSelection(treeView.selection))
+
+  context.subscriptions.push(
+    treeView,
+    vscode.commands.registerCommand('money-glitch.addStock', () =>
+      provider.addStock()
+    ),
+    vscode.commands.registerCommand('money-glitch.deleteStock', (item) =>
+      provider.deleteStock(item)
+    ),
+    vscode.commands.registerCommand('money-glitch.moveEntryUp', (item) =>
+      provider.moveEntryUp(item)
+    ),
+    vscode.commands.registerCommand('money-glitch.moveEntryDown', (item) =>
+      provider.moveEntryDown(item)
+    ),
+    vscode.commands.registerCommand('money-glitch.refreshStocks', () =>
+      provider.refresh()
+    )
+  )
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+// export function deactivate() {}
