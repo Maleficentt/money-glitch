@@ -32,64 +32,107 @@
     },
     "commands": [
       {
-        "command": "money-glitch.addStock",
-        "title": "添加股票",
+        "command": "moneyGlitch.refreshStocks",
+        "title": "刷新",
+        "category": "Money Glitch",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "moneyGlitch.addStock",
+        "title": "添加",
         "category": "Money Glitch",
         "icon": "$(add)"
       },
       {
-        "command": "money-glitch.deleteStock",
-        "title": "删除股票",
-        "category": "Money Glitch",
-        "icon": "$(trash)"
+        "command": "moneyGlitch.deleteStock",
+        "title": "删除股票"
       },
       {
-        "command": "money-glitch.moveEntryUp",
-        "title": "上移条目",
-        "category": "Money Glitch",
-        "icon": "$(arrow-up)"
+        "command": "moneyGlitch.moveEntryUp",
+        "title": "上移条目"
       },
       {
-        "command": "money-glitch.moveEntryDown",
-        "title": "下移条目",
-        "category": "Money Glitch",
-        "icon": "$(arrow-down)"
+        "command": "moneyGlitch.moveEntryDown",
+        "title": "下移条目"
       },
       {
-        "command": "money-glitch.refreshStocks",
-        "title": "刷新股票",
-        "category": "Money Glitch",
-        "icon": "$(refresh)"
+        "command": "moneyGlitch.addToStatusBar",
+        "title": "添加至状态栏"
+      },
+      {
+        "command": "moneyGlitch.positionManagement",
+        "title": "持仓",
+        "icon": {
+          "dark": "resources/position_dark.svg",
+          "light": "resources/position_light.svg"
+        }
+      },
+      {
+        "command": "moneyGlitch.setStockPosition",
+        "title": "持仓设置"
+      },
+      {
+        "command": "moneyGlitch.buyStock",
+        "title": "股票买入"
+      },
+      {
+        "command": "moneyGlitch.sellStock",
+        "title": "股票卖出"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "money-glitch.addStock",
+          "command": "moneyGlitch.addStock",
           "when": "view == stocks",
           "group": "navigation@1"
         },
         {
-          "command": "money-glitch.refreshStocks",
+          "command": "moneyGlitch.positionManagement",
           "when": "view == stocks",
           "group": "navigation@2"
+        },
+        {
+          "command": "moneyGlitch.refreshStocks",
+          "when": "view == stocks",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
         {
-          "command": "money-glitch.moveEntryUp",
+          "command": "moneyGlitch.moveEntryUp",
           "when": "view == stocks && viewItem == stock",
-          "group": "group@1"
+          "group": "group1"
         },
         {
-          "command": "money-glitch.moveEntryDown",
+          "command": "moneyGlitch.moveEntryDown",
           "when": "view == stocks && viewItem == stock",
-          "group": "inline@2"
+          "group": "group1"
         },
         {
-          "command": "money-glitch.deleteStock",
+          "command": "moneyGlitch.setStockPosition",
           "when": "view == stocks && viewItem == stock",
-          "group": "inline@3"
+          "group": "group2"
+        },
+        {
+          "command": "moneyGlitch.buyStock",
+          "when": "view == stocks && viewItem == stock",
+          "group": "group2"
+        },
+        {
+          "command": "moneyGlitch.sellStock",
+          "when": "view == stocks && viewItem == stock",
+          "group": "group2"
+        },
+        {
+          "command": "moneyGlitch.addToStatusBar",
+          "when": "view == stocks && viewItem == stock",
+          "group": "group3"
+        },
+        {
+          "command": "moneyGlitch.deleteStock",
+          "when": "view == stocks && viewItem == stock",
+          "group": "group4"
         }
       ]
     },
@@ -101,26 +144,70 @@
     ],
     "configuration": {
       "properties": {
-        "moneyGlitch.stockCodes": {
+        "moneyGlitch.indexSymbols": {
           "type": "array",
           "default": [
-            "sh000001",
-            "sh000300",
-            "sh000016",
-            "sh000688",
-            "hk03690",
-            "hk00700",
-            "usr_ixic",
-            "usr_dji",
-            "usr_inx",
-            "nf_IF0",
-            "nf_IH0",
-            "nf_IC0",
-            "nf_IM0",
-            "hf_OIL",
-            "hf_CHA50CFD"
+            "SZ399001",
+            "SZ399001",
+            "SZ399006",
+            "SH000688",
+            "SH000688",
+            "SH000016",
+            "SH000300",
+            "BJ899050",
+            "HKHSI",
+            "HKHSCEI",
+            "HKHSTECH",
+            ".DJI",
+            ".IXIC",
+            ".INX"
           ],
+          "description": "List of index symbol"
+        },
+        "moneyGlitch.stockSymbols": {
+          "type": "array",
+          "default": [
+            "SH000001",
+            "SH000300",
+            "SH000016",
+            "SH000688"
+          ],
+          "description": "List of stock symbol"
+        },
+        "moneyGlitch.statusBarStockSymbols": {
+          "type": "array",
+          "default": [],
+          "description": "List of stock symbol in statusBar"
+        },
+        "moneyGlitch.position": {
+          "type": "object",
+          "default": {
+            "SH603043": {
+              "cost": 14,
+              "shares": 3000
+            }
+          },
           "description": "List of stock code"
+        },
+        "moneyGlitch.commonCommissionRate": {
+          "type": "number",
+          "default": 0.0002354,
+          "description": "股票佣金费率"
+        },
+        "moneyGlitch.etfCommissionRate": {
+          "type": "number",
+          "default": 0.00025,
+          "description": "etf佣金费率"
+        },
+        "moneyGlitch.stampTaxRate": {
+          "type": "number",
+          "default": 0.0005,
+          "description": "印花税费率"
+        },
+        "moneyGlitch.transferRate": {
+          "type": "number",
+          "default": 0.00001,
+          "description": "过户费率"
         }
       }
     }
@@ -136,7 +223,7 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
+    "@types/node": "^22.19.19",
     "@types/vscode": "^1.120.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",

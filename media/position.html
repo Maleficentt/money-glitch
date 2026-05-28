@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>持仓</title>
+  <meta charset="utf-8" />
+  <script src="https://unpkg.com/vue@2"></script>
+  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <link rel="stylesheet" href="${styleResetUri}" />
+  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css" />
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+    }
+
+    body.vscode-dark {
+      color: #fff;
+    }
+
+    body.vscode-light {
+      color: #000;
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      font-family: Avenir, Helvetica, Arial, sans-serif;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      padding: 16px;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+    }
+
+    .stat-item .stat-value {
+      display: flex;
+      align-items: center;
+      font-size: 18px;
+      margin-top: 8px;
+    }
+
+    .stat-item .stat-value.profit {
+      color: #F56C6C;
+    }
+
+    .stat-item .stat-value.loss {
+      color: #67C23A;
+    }
+
+    .stat-item .stat-value .ratio {
+      font-size: 12px;
+      margin-left: 4px;
+    }
+
+    .stat-item+.stat-item {
+      margin-left: 60px;
+    }
+
+    .table-wrapper {
+      width: 100%;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .table-wrapper .table-cell {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .table-wrapper .table-cell.profit {
+      color: #F56C6C;
+    }
+
+    .table-wrapper .table-cell.loss {
+      color: #67C23A;
+    }
+
+    .footer {
+      margin-top: 8px;
+      text-align: center;
+    }
+
+    .tips {
+      color: #F56C6C;
+      margin-bottom: 16px;
+    }
+
+    .el-table {
+      background-color: var(--vscode-editor-background);
+    }
+
+    .el-table th.el-table__cell {
+      background-color: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+    }
+
+    .el-table td.el-table__cell,
+    .el-table th.el-table__cell.is-leaf {
+      background-color: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      border-bottom: 1px solid var(--vscode-editorGroup-border);
+    }
+
+    .el-table__body tr:hover>td.el-table__cell {
+      background-color: var(--vscode-list-hoverBackground);
+    }
+
+    tr.hover-row {
+
+      &,
+      &.el-table__row--striped {
+
+        &,
+        &.current-row,
+        &.selection-row {
+          >td.el-table__cell {
+            background-color: var(--vscode-list-hoverBackground);
+          }
+        }
+      }
+    }
+
+    tr.current-row>td.el-table__cell,
+    tr.selection-row>td.el-table__cell {
+      background-color: var(--vscode-list-hoverBackground);
+    }
+
+    .el-table__fixed::before,
+    .el-table__fixed-right::before {
+      display: none;
+    }
+
+    .el-table:before {
+      height: 0;
+    }
+
+    .el-button {
+      color: var(--vscode-editor-foreground);
+      background-color: var(--vscode-editor-background);
+      border-color: var(--vscode-editorGroup-border);
+    }
+
+    .el-button:focus,
+    .el-button:hover {
+      color: var(--vscode-button-hoverBackground);
+      background-color: var(--vscode-editor-background);
+      border-color: var(--vscode-button-hoverBackground);
+    }
+
+    .el-button--primary {
+      color: var(--vscode-button-foreground);
+      background-color: var(--vscode-button-background);
+      border-color: var(--vscode-button-background);
+    }
+
+    .el-button--primary:focus,
+    .el-button--primary:hover {
+      background: var(--vscode-button-hoverBackground);
+      border-color: var(--vscode-button-hoverBackground);
+      color: var(--vscode-button-foreground);
+    }
+
+    .el-button--primary.is-plain {
+      color: var(--vscode-button-background);
+      background-color: var(--vscode-editor-background);
+      border-color: var(--vscode-button-background);
+    }
+
+    .el-button--primary.is-plain:focus,
+    .el-button--primary.is-plain:hover {
+      color: var(--vscode-button-hoverBackground);
+      background-color: var(--vscode-editor-background);
+      border-color: var(--vscode-button-hoverBackground);
+    }
+
+    .el-link.el-link--primary {
+      color: var(--vscode-button-background);
+    }
+
+    .el-link.el-link--primary:hover {
+      color: var(--vscode-list-focusOutline);
+    }
+
+    .el-dialog {
+      overflow: hidden;
+      border-radius: 6px;
+      background: var(--vscode-editor-background);
+    }
+
+    .el-dialog__header {
+      padding: 14px 16px;
+      line-height: 1;
+      border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder);
+    }
+
+    .el-dialog__title {
+      font-size: 14px;
+      color: var(--vscode-editor-foreground);
+    }
+
+    .el-dialog__headerbtn {
+      top: 16px;
+    }
+
+    .el-dialog__body {
+      padding: 16px;
+      line-height: 1.5;
+      color: var(--vscode-editor-foreground);
+    }
+
+    .el-dialog__footer {
+      padding: 12px 18px;
+      border-top: 1px solid var(--vscode-editorGroupHeader-tabsBorder);
+    }
+
+    .el-form-item__label {
+      color: var(--vscode-editor-foreground);
+    }
+
+    .el-input__inner {
+      background-color: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      border: 1px solid var(--vscode-editorGroup-border);
+    }
+
+    .el-input-number .el-input__inner {
+      text-align: left;
+      padding-left: 8px;
+      padding-right: 40px;
+    }
+
+    .el-input-number__decrease,
+    .el-input-number__increase {
+      color: var(--vscode-editor-foreground);
+      background-color: var(--vscode-button-secondaryBackground);
+    }
+
+    .el-input-number.is-controls-right .el-input-number__increase {
+      border-bottom: 1px solid var(--vscode-editorGroup-border);
+    }
+
+    .el-input-number.is-controls-right .el-input-number__decrease {
+      border-left: 1px solid var(--vscode-editorGroup-border);
+    }
+
+    .el-input-number__increase {
+      border-left: 1px solid var(--vscode-editorGroup-border);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div class="header">
+      <div class="stat-item">
+        <span>总市值</span>
+        <span class="stat-value">{{ totalMarketValue | formatNumber }}</span>
+      </div>
+      <div class="stat-item">
+        <span>持仓盈亏</span>
+        <div :class="['stat-value', { profit:totalProfit > 0, loss: totalProfit < 0 }]">
+          <span>{{ totalProfit | formatNumber }}</span>
+          <span class="ratio" v-if="!!totalProfit">{{ totalProfitRate }} %</span>
+        </div>
+      </div>
+      <div class="stat-item">
+        <span>当日盈亏</span>
+        <div :class="['stat-value', { profit:todayProfit > 0, loss: todayProfit < 0 }]">
+          <span>{{ todayProfit | formatNumber }}</span>
+          <span class="ratio" v-if="!!todayProfit">{{ todayProfitRate }} %</span>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <el-table height="100%" :data="stockList">
+        <el-table-column prop="marketValue" label="市值" min-width="100" fixed="left" sortable>
+          <template slot-scope="{ row }">
+            <div class="table-cell">
+              <span>{{ row.name }}</span>
+              <span>{{ row.marketValue }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="position.shares" label="持仓" min-width="100"></el-table-column>
+        <el-table-column prop="price" label="现价 | 成本价" min-width="120">
+          <template slot-scope="{ row }">
+            <div class="table-cell">
+              <span>{{ row.quote.current.toFixed(2) }}</span>
+              <span>{{ row.position.cost }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="profit.totalProfit" label="总盈亏" min-width="100" sortable>
+          <template slot-scope="{ row }">
+            <div :class="['table-cell', { loss: row.profit.totalProfit < 0, profit: row.profit.totalProfit > 0 }]">
+              <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfit }}</span>
+              <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfitRate }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="profit.todayProfit" label="当日盈亏" min-width="100" sortable>
+          <template slot-scope="{ row }">
+            <div :class="['table-cell', {loss: row.profit.todayProfit<0, profit: row.profit.todayProfit>0}]">
+              <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfit }}</span>
+              <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfitRate }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="marketValue" label="仓位" min-width="100">
+          <template slot-scope="{ row }">
+            <span>{{ calculatePositionRate(row.marketValue) }}%</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="action" label="操作" width="100" fixed="right">
+          <template slot-scope="{ row }">
+            <div class="table-cell">
+              <el-link type="primary" :underline="false" @click="showHoldForm(row)">持仓设置</el-link>
+              <el-link type="primary" :underline="false" @click="showTradeForm(row)">股票交易</el-link>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <div class="footer">
+      <el-button type="primary" size="small" @click="handlePosition">持仓设置</el-button>
+      <el-button type="primary" size="small" @click="handleTrade">股票交易</el-button>
+    </div>
+    <el-dialog title="持仓设置" :visible.sync="holdFormVisible" width="350px">
+      <div class="tips">注意：修改持仓会清空交易记录</div>
+      <el-form :model="holdFormData" label-width="80px" label-suffix=":">
+        <el-form-item label="股票" v-if="!isSpecifyTrade">
+          <el-select v-model="holdFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
+            :remote-method="getSuggestStockList" :loading="loading" size="small">
+            <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
+              <span>{{ item.name }}</span>
+              <span>{{ item.code }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="成本">
+          <el-input-number v-model="holdFormData.cost" size="small" controls-position="right"></el-input-number>
+        </el-form-item>
+        <el-form-item label="数量">
+          <el-input-number v-model="holdFormData.shares" size="small" controls-position="right"
+            :min="0"></el-input-number>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button size="small" @click="holdFormVisible = false">取 消</el-button>
+        <el-button type="primary" size="small" @click="submitHoldForm">确 定</el-button>
+      </div>
+    </el-dialog>
+    <el-dialog title="股票交易" :visible.sync="tradeFormVisible" width="500px">
+      <el-form :model="tradeFormData" label-width="120px" label-suffix=":">
+        <el-form-item label="股票" v-if="!isSpecifyTrade">
+          <el-select v-model="tradeFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
+            :remote-method="getSuggestStockList" :loading="loading" size="small">
+            <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
+              <span>{{ item.name }}</span>
+              <span>{{ item.code }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="交易方向">
+          <el-select v-model="tradeFormData.type" size="small" controls-position="right">
+            <el-option label="买入" :value="1"></el-option>
+            <el-option label="卖出" :value="-1"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="成交价格">
+          <el-input-number v-model="tradeFormData.price" size="small" controls-position="right"></el-input-number>
+        </el-form-item>
+        <el-form-item label="成交数量">
+          <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right"
+            :min="0"></el-input-number>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button size="small" @click="tradeFormVisible = false">取 消</el-button>
+        <el-button type="primary" size="small" @click="submitTradeForm">确 定</el-button>
+      </div>
+    </el-dialog>
+  </div>
+
+  <script>
+    const app = new Vue({
+      el: '#app',
+      data: {
+        stockList: [],
+        totalMarketValue: 0,
+        totalProfit: 0,
+        totalProfitRate: 0,
+        todayProfit: 0,
+        todayProfitRate: 0,
+        holdFormVisible: false,
+        holdFormData: {
+          symbol: '',
+          cost: '',
+          shares: ''
+        },
+        tradeFormVisible: false,
+        tradeFormData: {
+          symbol: '',
+          type: '',
+          price: '',
+          shares: ''
+        },
+        isSpecifyTrade: true,
+        suggestStockList: [],
+        loading: false
+      },
+      filters: {
+        formatNumber(val) {
+          let num = val
+          if (typeof val === 'string') {
+            num = Number(val)
+          }
+          return typeof val === 'number' ? val.toLocaleString() : val
+        }
+      },
+      mounted() {
+        this.vscode = acquireVsCodeApi()
+        window.addEventListener('message', (event) => {
+          const message = event.data
+          switch (message.command) {
+            case 'init':
+              this.initStockList(message)
+              break
+            case 'queryStockResponse': {
+              this.suggestStockList = message.data
+              this.loading = false
+            }
+          }
+        })
+        this.vscode.postMessage({
+          command: 'refresh'
+        })
+      },
+      methods: {
+        initStockList({ data }) {
+          const stockList = []
+          let totalMarketValue = 0 // 总市值
+          let totalProfit = 0 // 总盈亏
+          let todayProfit = 0 // 当日盈亏
+          data.forEach(item => {
+            const result = { ...item }
+            if (item.profit) {
+              const { shares } = item.position
+              const { current } = item.quote
+              const marketValue = Math.round(current * 1000) * shares / 1000
+              result.marketValue = marketValue
+              totalMarketValue += marketValue
+              totalProfit += item.profit.totalProfit
+              todayProfit += item.profit.todayProfit
+              stockList.push(result)
+            }
+          })
+          this.stockList = stockList
+          this.totalMarketValue = totalMarketValue
+          this.totalProfit = totalProfit
+          this.totalProfitRate = totalMarketValue ? Math.round(totalProfit / totalMarketValue * 10000) / 100 : 0
+          this.todayProfit = todayProfit
+          this.todayProfitRate = totalMarketValue ? Math.round(todayProfit / totalMarketValue * 10000) / 100 : 0
+        },
+        calculatePositionRate(marketValue) {
+          return Math.round(marketValue / this.totalMarketValue * 10000) / 100
+        },
+        handlePosition() {
+          this.isSpecifyTrade = false
+          this.holdFormData = {
+            symbol: '',
+            cost: '',
+            shares: ''
+          }
+          this.holdFormVisible = true
+        },
+        handleTrade() {
+          this.isSpecifyTrade = false
+          this.tradeFormData = {
+            symbol: '',
+            type: '',
+            price: '',
+            shares: ''
+          }
+          this.tradeFormVisible = true
+        },
+        showHoldForm(row) {
+          this.isSpecifyTrade = true
+          this.holdFormData = {
+            symbol: row.symbol,
+            cost: row.position.cost,
+            shares: row.position.shares
+          }
+          this.holdFormVisible = true
+        },
+        submitHoldForm() {
+          this.vscode.postMessage({
+            command: 'setStockPosition',
+            data: this.holdFormData
+          })
+          this.holdFormVisible = false
+        },
+        showTradeForm(row) {
+          this.isSpecifyTrade = true
+          this.tradeFormData = {
+            symbol: row.symbol,
+            type: '',
+            price: '',
+            shares: ''
+          }
+          this.tradeFormVisible = true
+        },
+        submitTradeForm() {
+          this.vscode.postMessage({
+            command: 'addStockTradeRecord',
+            data: this.tradeFormData
+          })
+          this.tradeFormVisible = false
+        },
+        getSuggestStockList(query) {
+          if (query) {
+            this.loading = true
+            this.vscode.postMessage({
+              command: 'queryStock',
+              data: query
+            })
+          } else {
+            this.suggestStockList = []
+          }
+        }
+      }
+    })
+  </script>
+</body>
+
+</html>
