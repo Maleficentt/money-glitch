@@ -28,13 +28,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration('moneyGlitch.statusBarStockSymbols')) {
         statusBarManager.refresh()
       }
+      if (e.affectsConfiguration('moneyGlitch.position')) {
+        stockManager.refresh()
+        statusBarManager.refresh()
+      }
     }
   })
 
   context.subscriptions.push(
     treeView,
     vscode.commands.registerCommand('moneyGlitch.refreshStocks', () =>
-      provider.refresh()
+      stockManager.refresh()
     ),
     vscode.commands.registerCommand('moneyGlitch.addStock', () =>
       provider.addStock()
@@ -45,11 +49,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('moneyGlitch.deleteStock', (stockItem) =>
       provider.deleteStock(stockItem)
     ),
-    vscode.commands.registerCommand('moneyGlitch.moveEntryUp', (stockItem) =>
-      provider.moveEntryUp(stockItem)
+    vscode.commands.registerCommand('moneyGlitch.moveUp', (stockItem) =>
+      provider.swap(stockItem, -1)
     ),
-    vscode.commands.registerCommand('moneyGlitch.moveEntryDown', (stockItem) =>
-      provider.moveEntryDown(stockItem)
+    vscode.commands.registerCommand('moneyGlitch.moveDown', (stockItem) =>
+      provider.swap(stockItem, 1)
     ),
     vscode.commands.registerCommand('moneyGlitch.changeStatusBarItem', (stockSymbol) => {
       statusBarManager.changeStatusBarItem(stockSymbol)

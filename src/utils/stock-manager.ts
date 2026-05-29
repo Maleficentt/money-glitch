@@ -44,11 +44,19 @@ class StockManager {
     this.stockDataController.abort()
     this.stockDataController = new AbortController()
     const stockSymbols = this.configManager.getStockSymbols()
-    const restSymbols = stockSymbols.filter(symbol => !this.stockList.some(stock => stock.symbol === symbol))
+    const selectedStockList: Stock[] = []
+    this.stockList.forEach(stock => {
+      if (stockSymbols.includes(stock.symbol)) {
+        selectedStockList.push(stock)
+      }
+    })
+    this.stockList = selectedStockList
+    const restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
     if (restSymbols.length) {
       getStockData(restSymbols, { signal: this.stockDataController.signal }).then(data => {
         this.stockList.push(...data)
         this.formatStockList()
+        this.sort()
         this._onDidChangeStockList.fire(this.stockList)
         const openingSymbols: string[] = []
         const openingHKSymbols: string[] = []
@@ -73,10 +81,13 @@ class StockManager {
           }, 1000)
         }
       })
+    } {
+      this.sort()
+      this._onDidChangeStockList.fire(this.stockList)
     }
   }
 
-  getRealtimeQuote(
+  private getRealtimeQuote(
     marketStatus: Record<string, number> = {},
     commonSymbols: string[] = [],
     hkSymbols: string[] = []
@@ -139,7 +150,7 @@ class StockManager {
     })
   }
 
-  getCommonRealtimeQuote(symbols: string[] = []) {
+  private getCommonRealtimeQuote(symbols: string[] = []) {
     console.log('getCommonRealtimeQuote')
     this.commonRealtimeQuoteController.abort()
     this.commonRealtimeQuoteController = new AbortController()
@@ -169,7 +180,7 @@ class StockManager {
     }
   }
 
-  getHKRealtimeQuote(symbols: string[] = []) {
+  private getHKRealtimeQuote(symbols: string[] = []) {
     console.log('getHKRealtimeQuote')
     this.HKRealtimeQuoteController.abort()
     this.HKRealtimeQuoteController = new AbortController()
@@ -199,7 +210,7 @@ class StockManager {
     }
   }
 
-  formatStockList() {
+  private formatStockList() {
     const stockPosition = this.configManager.getPosition()
     this.stockList = this.stockList.map(item => {
       const stock = { ...item }
@@ -260,6 +271,17 @@ class StockManager {
         }
       }
       return stock
+    })
+  }
+
+  private sort() {
+    const stockSymbols = this.configManager.getStockSymbols()
+    const orderMap = new Map<string, number>()
+    stockSymbols.forEach((symbol, index) => orderMap.set(symbol, index))
+    this.stockList.sort((a, b) => {
+      const indexA = orderMap.has(a.symbol) ? orderMap.get(a.symbol)! : Infinity
+      const indexB = orderMap.has(b.symbol) ? orderMap.get(b.symbol)! : Infinity
+      return indexA - indexB
     })
   }
 

@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.120.0"
   },
@@ -45,15 +45,7 @@
       },
       {
         "command": "moneyGlitch.deleteStock",
-        "title": "删除股票"
-      },
-      {
-        "command": "moneyGlitch.moveEntryUp",
-        "title": "上移条目"
-      },
-      {
-        "command": "moneyGlitch.moveEntryDown",
-        "title": "下移条目"
+        "title": "删除"
       },
       {
         "command": "moneyGlitch.addToStatusBar",
@@ -78,6 +70,16 @@
       {
         "command": "moneyGlitch.sellStock",
         "title": "股票卖出"
+      },
+      {
+        "command": "moneyGlitch.moveUp",
+        "title": "上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "moneyGlitch.moveDown",
+        "title": "下移",
+        "icon": "$(arrow-down)"
       }
     ],
     "menus": {
@@ -100,13 +102,23 @@
       ],
       "view/item/context": [
         {
-          "command": "moneyGlitch.moveEntryUp",
-          "when": "view == stocks && viewItem == stock",
+          "command": "moneyGlitch.moveUp",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
+          "group": "inline"
+        },
+        {
+          "command": "moneyGlitch.moveDown",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
+          "group": "inline"
+        },
+        {
+          "command": "moneyGlitch.moveUp",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
           "group": "group1"
         },
         {
-          "command": "moneyGlitch.moveEntryDown",
-          "when": "view == stocks && viewItem == stock",
+          "command": "moneyGlitch.moveDown",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
           "group": "group1"
         },
         {
@@ -126,12 +138,12 @@
         },
         {
           "command": "moneyGlitch.addToStatusBar",
-          "when": "view == stocks && viewItem == stock",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
           "group": "group3"
         },
         {
           "command": "moneyGlitch.deleteStock",
-          "when": "view == stocks && viewItem == stock",
+          "when": "view == stocks && (viewItem == stock || viewItem === index)",
           "group": "group4"
         }
       ]
@@ -147,7 +159,7 @@
         "moneyGlitch.indexSymbols": {
           "type": "array",
           "default": [
-            "SZ399001",
+            "SH000001",
             "SZ399001",
             "SZ399006",
             "SH000688",
@@ -187,7 +199,7 @@
               "shares": 3000
             }
           },
-          "description": "List of stock code"
+          "description": "stock position detail"
         },
         "moneyGlitch.commonCommissionRate": {
           "type": "number",
@@ -218,7 +230,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "package": "vsce package"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
@@ -227,6 +240,7 @@
     "@types/vscode": "^1.120.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.1",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"

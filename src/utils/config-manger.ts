@@ -81,6 +81,11 @@ class ConfigManager {
     }
     return this.updateConfig('position', position)
   }
+
+  getIndexSymbols(): string[] {
+    return this.getConfig<string[]>('indexSymbols', [])
+  }
+
 }
 
 export default ConfigManager

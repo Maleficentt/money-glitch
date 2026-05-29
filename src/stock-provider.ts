@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { StockCategory, Stock } from './utils/types'
+import { Stock } from './utils/types'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
@@ -12,28 +12,32 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.extend(isBetween)
 
-class StockCategoryItem extends vscode.TreeItem {
+class StockGroupItem extends vscode.TreeItem {
   constructor(
-    public readonly stockCategory: StockCategory,
+    public readonly groupKey: string,
     public readonly stockCount: number,
     collapsibleState: vscode.TreeItemCollapsibleState
   ) {
-    super(stockCategory, collapsibleState)
+    super(groupKey, collapsibleState)
 
-    this.contextValue = 'stockCategory'
+    this.contextValue = 'group'
     this.description = `(${stockCount})`
-    this.tooltip = `${stockCategory} (${stockCount})`
+    this.tooltip = `${groupKey} (${stockCount})`
   }
 }
 
 class StockItem extends vscode.TreeItem {
-  constructor(public readonly stock: Stock, context: vscode.ExtensionContext) {
+  constructor(
+    public readonly stock: Stock,
+    isIndex: boolean,
+    context: vscode.ExtensionContext
+  ) {
     const { name, quote } = stock
     const { percent, current } = quote
-    const label = `  ${percent >= 0 ? `+${percent}` : ` ${percent}`}%   ${current.toFixed(2).padEnd(12, ' ')}    ${name}`
+    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percent}` : ` ${percent}`}%   ${current.toFixed(2).padEnd(12, ' ')}    ${name}`
     super(label, vscode.TreeItemCollapsibleState.None)
 
-    this.contextValue = 'stock'
+    this.contextValue = isIndex ? 'index' : 'stock'
     this.tooltip = StockItem.formatTooltip(stock)
     this.iconPath = vscode.Uri.joinPath(
       context.extensionUri,
@@ -43,23 +47,22 @@ class StockItem extends vscode.TreeItem {
   }
 
   private static formatTooltip(stock: Stock): string {
-    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, time } = stock.quote
+    const { name, symbol, quote } = stock
+    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, time } = quote
     const quantity = Math.floor(volume / lotSize)
     const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
     const formatAmount = amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万`
-    return `涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n更新时间：${dayjs(time).format('MM-DD HH:mm:ss')}`
+    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(time).format('MM-DD HH:mm:ss')}`
   }
 }
 
 
-type StockTreeItem = StockCategoryItem | StockItem
+type StockTreeItem = StockGroupItem | StockItem
 
 class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
   private configManager = ConfigManager.getInstance()
   private stockManager = StockManager.getInstance()
   private stockList: Stock[] = []
-  private static readonly StockCategories: StockCategory[] = ['A Stock', 'HK Stock', 'US STOCK']
-  private readonly defaultExpandedStockTypes = new Set<StockCategory>(['A Stock'])
   private readonly changeEmitter = new vscode.EventEmitter<
     StockTreeItem | undefined | null | void
   >()
@@ -81,23 +84,76 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
   async getChildren(element?: StockTreeItem): Promise<StockTreeItem[]> {
     if (!element) {
-      return StockTreeProvider.StockCategories.map(
-        (stockCategory) =>
-          new StockCategoryItem(
-            stockCategory,
-            this.getStocksByCategory(this.stockList, stockCategory).length,
-            this.getStockTypeCollapsibleState(stockCategory)
-          )
-      )
+      return [...this.getIndexItems(), ...this.getGroupItems()]
     }
 
-    if (element instanceof StockCategoryItem) {
-      return this.stockList
-        .filter((stock) => stock.category === element.stockCategory)
-        .map((stock) => new StockItem(stock, this.context))
+    if (element instanceof StockGroupItem) {
+      const indexSymbols = this.configManager.getIndexSymbols()
+      const stockList = this.stockList
+        .filter(stock => !indexSymbols.includes(stock.symbol))
+      if (element.groupKey === 'ALL') {
+        return stockList.map((stock) => new StockItem(stock, false, this.context))
+      } else {
+        return stockList
+          .filter((stock) => stock.region === element.groupKey)
+          .map((stock) => new StockItem(stock, false, this.context))
+      }
     }
 
     return []
+  }
+
+  private getGroupItems(): StockGroupItem[] {
+    const groups: StockGroupItem[] = []
+    const stocksByRegion = this.groupStocksByRegion()
+
+    let allCount = 0
+    for (const [region, stocks] of stocksByRegion) {
+      const count = stocks?.length || 0
+      if (count > 0) { // 只显示有股票的地区
+        groups.push(new StockGroupItem(
+          region,
+          count,
+          vscode.TreeItemCollapsibleState.Collapsed
+        ))
+        allCount += count
+      }
+    }
+
+    groups.sort()
+
+    groups.unshift(new StockGroupItem(
+      'ALL',
+      allCount,
+      vscode.TreeItemCollapsibleState.Expanded
+    ))
+
+    return groups
+  }
+
+  private getIndexItems(): StockItem[] {
+    const indexSymbols = this.configManager.getIndexSymbols()
+    const indexItems: StockItem[] = []
+    this.stockList.forEach(stock => {
+      if (indexSymbols.includes(stock.symbol)) {
+        indexItems.push(new StockItem(stock, true, this.context))
+      }
+    })
+    return indexItems
+  }
+
+  private groupStocksByRegion(): Map<string, Stock[]> {
+    const indexSymbols = this.configManager.getIndexSymbols()
+    const groups = new Map<string, Stock[]>()
+    for (const stock of this.stockList) {
+      if (indexSymbols.includes(stock.symbol)) continue
+      const region = stock.region
+      if (!groups.has(region)) {
+        groups.set(region, [])
+      }
+      groups.get(region)!.push(stock)
+    }
+    return groups
   }
 
   async addStock(): Promise<void> {
@@ -145,30 +201,31 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
     }
   }
 
-  async moveEntryUp(_item?: StockTreeItem): Promise<void> {
-    console.log(_item)
-    await vscode.window.showInformationMessage('Stock data source is reserved.')
-  }
-
-  async moveEntryDown(_item?: StockTreeItem): Promise<void> {
-    console.log(_item)
-    await vscode.window.showInformationMessage('Stock data source is reserved.')
+  swap(stockItem: StockItem, direction: number) {
+    const { stock, contextValue } = stockItem
+    const stockSymbols = this.configManager.getStockSymbols()
+    const indexSymbols = this.configManager.getIndexSymbols()
+    const swapIndexSymbols = stockSymbols.filter(item => indexSymbols.includes(item))
+    const swapOtherSymbols = stockSymbols.filter(item => !indexSymbols.includes(item))
+    let swapSymbols = [...stockSymbols]
+    const isIndex = contextValue === 'index'
+    if (isIndex) {
+      swapSymbols = swapIndexSymbols
+    } else {
+      swapSymbols = swapOtherSymbols
+    }
+    const index = swapSymbols.findIndex(symbol => symbol === stock.symbol)
+    if ((direction > 0 && index < swapSymbols.length - 1) || (direction < 0 && index > 0)) {
+      const newIndex = index + direction
+      const newArr = [...swapSymbols];
+      [newArr[index], newArr[newIndex]] = [newArr[newIndex], newArr[index]]
+      const newStockSymbols = isIndex ? [...newArr, ...swapOtherSymbols] : [...swapIndexSymbols, ...newArr]
+      this.configManager.updateConfig('stockSymbols', newStockSymbols)
+    }
   }
 
   refresh(): void {
     this.changeEmitter.fire()
-  }
-
-  private getStocksByCategory(stocks: Stock[], stockCategory: StockCategory): Stock[] {
-    return stocks.filter((stock) => stock.category === stockCategory)
-  }
-
-  private getStockTypeCollapsibleState(
-    stockCategory: StockCategory
-  ): vscode.TreeItemCollapsibleState {
-    return this.defaultExpandedStockTypes.has(stockCategory)
-      ? vscode.TreeItemCollapsibleState.Expanded
-      : vscode.TreeItemCollapsibleState.Collapsed
   }
 
   private async getStockSuggestList(searchText = ''): Promise<vscode.QuickPickItem[]> {
