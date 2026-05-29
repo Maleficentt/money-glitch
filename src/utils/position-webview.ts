@@ -30,11 +30,17 @@ export default async function createPositionWebview(context: vscode.ExtensionCon
 
   const stockManager = StockManager.getInstance()
   const configManager = ConfigManager.getInstance()
-  stockManager.onDidChangeStockList((stocks) => {
+  const disposable = stockManager.onDidChangeStockList((stocks) => {
     panel.webview.postMessage({
       command: 'init',
       data: stocks
     })
+  })
+
+  context.subscriptions.push(disposable)
+
+  panel.onDidDispose(() => {
+    disposable.dispose()
   })
 
   panel.webview.onDidReceiveMessage(message => {
