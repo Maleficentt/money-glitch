@@ -5,6 +5,7 @@ import { Position, Stock } from './utils/types'
 import StockManager from './utils/stock-manager'
 import Decimal from 'decimal.js'
 import dayjs from 'dayjs'
+import isETF from './utils/is-etf'
 
 export class StatusBarManager {
   private static instance: StatusBarManager
@@ -95,9 +96,12 @@ export class StatusBarManager {
   }
 
   private formatStatusBarText(stock: Stock): string {
-    const { name, quote } = stock
+    const { code, name, quote } = stock
     const { current, percent } = quote
-    return `${this.shortenName(name)} ${current.toFixed(3)} ${percent.toFixed(2)}%`
+    const isETFStock = isETF(code)
+    const currentFormat = isETFStock ? current.toFixed(3) : current.toFixed(2)
+    const percentFormat = percent.toFixed(2)
+    return `${this.shortenName(name)} ${currentFormat} ${percentFormat}%`
   }
 
   private shortenName(name: string): string {

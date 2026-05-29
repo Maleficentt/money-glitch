@@ -1,16 +1,10 @@
 import * as vscode from 'vscode'
 import { Stock } from './utils/types'
 import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-import timezone from 'dayjs/plugin/timezone'
-import isBetween from 'dayjs/plugin/isBetween'
 import ConfigManager from './utils/config-manger'
 import { queryStock } from './utils/data-service'
 import StockManager from './utils/stock-manager'
-
-dayjs.extend(utc)
-dayjs.extend(timezone)
-dayjs.extend(isBetween)
+import isETF from './utils/is-etf'
 
 class StockGroupItem extends vscode.TreeItem {
   constructor(
@@ -32,9 +26,11 @@ class StockItem extends vscode.TreeItem {
     isIndex: boolean,
     context: vscode.ExtensionContext
   ) {
-    const { name, quote } = stock
+    const { code, name, quote } = stock
     const { percent, current } = quote
-    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percent.toFixed(2)}` : ` ${percent.toFixed(2)}`}%   ${current.toFixed(3).padEnd(12, ' ')}    ${name}`
+    const percentFormat = percent.toFixed(2)
+    const currentFormat = isETF(code) ? current.toFixed(3) : current.toFixed(2)
+    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(12, ' ')}    ${name}`
     super(label, vscode.TreeItemCollapsibleState.None)
 
     this.contextValue = isIndex ? 'index' : 'stock'
