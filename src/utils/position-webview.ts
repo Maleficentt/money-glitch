@@ -48,6 +48,7 @@ export default async function createPositionWebview(context: vscode.ExtensionCon
         break
 
       case 'setStockPosition':
+        configManager.addStockSymbol(message.data.symbol)
         configManager.updatePosition(message.data)
         break
 

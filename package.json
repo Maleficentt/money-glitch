@@ -2,7 +2,12 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "author": "Maleficentt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Maleficentt/money-glitch.git"
+  },
   "engines": {
     "vscode": "^1.120.0"
   },
