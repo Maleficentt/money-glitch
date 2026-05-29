@@ -97,7 +97,7 @@ export class StatusBarManager {
   private formatStatusBarText(stock: Stock): string {
     const { name, quote } = stock
     const { current, percent } = quote
-    return `${this.shortenName(name)} ${current.toFixed(3)} ${percent}%`
+    return `${this.shortenName(name)} ${current.toFixed(3)} ${percent.toFixed(2)}%`
   }
 
   private shortenName(name: string): string {
@@ -207,11 +207,11 @@ export class StatusBarManager {
         }
       })
     stockNameList.unshift({
-      label: `股票卖出`,
+      label: `股票买入`,
       description: 'buy'
     })
     stockNameList.unshift({
-      label: `股票买入`,
+      label: `股票卖出`,
       description: 'sell'
     })
     stockNameList.unshift({

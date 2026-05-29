@@ -16,6 +16,8 @@ export interface Quote {
   amount: number                 // 成交额（元）
   turnoverRate: number           // 换手率，表示股票的转手买卖频率（单位：%）
   amplitude: number              // 振幅，表示股价在当日波动幅度（单位：%）
+  marketCapital: number          // 市值
+  floatMarketCapital: number     // 流通市值
   lotSize: number                // 一手多少股
   status: string                 // 交易状态(中文)
   statusId: number               // 交易状态(数字 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘)

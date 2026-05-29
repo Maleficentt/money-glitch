@@ -5,6 +5,8 @@ import { StatusBarManager } from './status-bar'
 import createPositionWebview from './utils/position-webview'
 import StockManager from './utils/stock-manager'
 
+process.env.TZ = 'Asia/Shanghai'
+
 export function activate(context: vscode.ExtensionContext) {
   const configManager = ConfigManager.getInstance()
 

@@ -34,7 +34,7 @@ class StockItem extends vscode.TreeItem {
   ) {
     const { name, quote } = stock
     const { percent, current } = quote
-    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percent}` : ` ${percent}`}%   ${current.toFixed(3).padEnd(12, ' ')}    ${name}`
+    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percent.toFixed(2)}` : ` ${percent.toFixed(2)}`}%   ${current.toFixed(3).padEnd(12, ' ')}    ${name}`
     super(label, vscode.TreeItemCollapsibleState.None)
 
     this.contextValue = isIndex ? 'index' : 'stock'

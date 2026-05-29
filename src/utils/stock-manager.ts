@@ -212,7 +212,8 @@ class StockManager {
 
   private formatStockList() {
     const stockPosition = this.configManager.getPosition()
-    this.stockList = this.stockList.map(item => {
+    const stockList: Stock[] = []
+    this.stockList.map(item => {
       const stock = { ...item }
       const position = stockPosition[stock.symbol]
       if (position) {
@@ -222,7 +223,7 @@ class StockManager {
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current } = item.quote
           // let yestAmount = lastClose * shares // 昨日持仓市值
-          let totalProfit = new Decimal(current).sub(cost).mul(shares) // 总盈亏
+          const totalProfit = new Decimal(current).sub(cost).mul(shares) // 总盈亏
           let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
           const isEtfStock = isETF(item.code)
           const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
@@ -234,32 +235,32 @@ class StockManager {
           if (todayTradeRecords.length > 0) {
             let restYestShares = shares
             let tradeProfit = new Decimal(0)
-            todayTradeRecords.forEach((record: TradeRecord) => {
+            for (const record of todayTradeRecords) {
               const { price: tradePrice, shares: tradeShares } = record
               if (!tradePrice || !tradeShares) return
               const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
-              const commission = Math.max(Number(commissionTemp) ? 0 : 5)
+              const commission = Math.max(Number(commissionTemp), 5)
               if (record.type === 1) {
                 yestShares -= tradeShares
                 restYestShares -= tradeShares
                 const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
-                totalProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
               } else if (record.type === -1) {
                 yestShares += tradeShares
                 const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
-                totalProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
                 if (!isEtfStock) {
-                  const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate)
-                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(transferRate)
+                  const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
+                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(transferRate).toFixed(2)
                   tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
                 }
               }
-            })
+            }
             // yestAmount = lastClose * yestShares
             todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
           }
           // 总盈亏 = (当前价 - 成本价) / 成本价
-          const totalProfitRate = new Decimal(current).sub(cost).div(current).mul(100).toFixed(2)
+          const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
           // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
           const todayProfitRate = todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2)
           stock.profit = {
@@ -270,8 +271,9 @@ class StockManager {
           }
         }
       }
-      return stock
+      stockList.push(stock)
     })
+    this.stockList = stockList
   }
 
   private sort() {
@@ -389,7 +391,7 @@ class StockManager {
     const typeDisplay = type > 0 ? '买入' : '卖出'
     const price = stock.quote.current || 0
     const inputPrice = await vscode.window.showInputBox({
-      prompt: `请输入${typeDisplay}}价格`,
+      prompt: `请输入${typeDisplay}价格`,
       value: price ? String(price) : '',
       validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的价格')
     })
@@ -400,6 +402,7 @@ class StockManager {
       prompt: `请输入${typeDisplay}}数量`,
       validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
     })
+    if (!inputShares) return
     const tradeRecord = {
       symbol: stock.symbol,
       type,
@@ -426,6 +429,7 @@ class StockManager {
       prompt: `请输入持仓数量`,
       validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
     })
+    if (!inputShares) return
     const position = {
       symbol: stock.symbol,
       cost: Number(inputCost),

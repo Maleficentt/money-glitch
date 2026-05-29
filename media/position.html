@@ -56,11 +56,11 @@
     }
 
     .stat-item .stat-value.profit {
-      color: #F56C6C;
+      color: #ee2500;
     }
 
     .stat-item .stat-value.loss {
-      color: #67C23A;
+      color: #093;
     }
 
     .stat-item .stat-value .ratio {
@@ -84,11 +84,11 @@
     }
 
     .table-wrapper .table-cell.profit {
-      color: #F56C6C;
+      color: #ee2500;
     }
 
     .table-wrapper .table-cell.loss {
-      color: #67C23A;
+      color: #093;
     }
 
     .footer {
@@ -97,7 +97,7 @@
     }
 
     .tips {
-      color: #F56C6C;
+      color: #ee2500;
       margin-bottom: 16px;
     }
 
@@ -301,7 +301,7 @@
         <el-table-column prop="price" label="现价 | 成本价" min-width="120">
           <template slot-scope="{ row }">
             <div class="table-cell">
-              <span>{{ row.quote.current.toFixed(2) }}</span>
+              <span>{{ row.quote.current.toFixed(3) }}</span>
               <span>{{ row.position.cost }}</span>
             </div>
           </template>
