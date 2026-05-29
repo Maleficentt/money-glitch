@@ -97,7 +97,7 @@ export class StatusBarManager {
   private formatStatusBarText(stock: Stock): string {
     const { name, quote } = stock
     const { current, percent } = quote
-    return `${this.shortenName(name)} ${current.toFixed(2)} ${percent}%`
+    return `${this.shortenName(name)} ${current.toFixed(3)} ${percent}%`
   }
 
   private shortenName(name: string): string {
