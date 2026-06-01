@@ -61,7 +61,11 @@ class StockManager {
     }
     if (restSymbols.length) {
       getStockData(restSymbols, { signal: this.stockDataController.signal }).then(data => {
-        this.stockList.push(...data)
+        if (isRefresh) {
+          this.stockList = [...data]
+        } else {
+          this.stockList.push(...data)
+        }
         this.formatStockList()
         this.sort()
         this._onDidChangeStockList.fire(this.stockList)
