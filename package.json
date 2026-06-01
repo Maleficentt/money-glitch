@@ -2,8 +2,9 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "Maleficentt",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Maleficentt/money-glitch.git"
@@ -85,24 +86,37 @@
         "command": "moneyGlitch.moveDown",
         "title": "下移",
         "icon": "$(arrow-down)"
+      },
+      {
+        "command": "moneyGlitch.selectedDetail",
+        "title": "自选详情",
+        "icon": {
+          "dark": "resources/selected_dark.svg",
+          "light": "resources/selected_light.svg"
+        }
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "moneyGlitch.addStock",
+          "command": "moneyGlitch.refreshStocks",
           "when": "view == stocks",
           "group": "navigation@1"
         },
         {
-          "command": "moneyGlitch.positionManagement",
+          "command": "moneyGlitch.addStock",
           "when": "view == stocks",
           "group": "navigation@2"
         },
         {
-          "command": "moneyGlitch.refreshStocks",
+          "command": "moneyGlitch.positionManagement",
           "when": "view == stocks",
           "group": "navigation@3"
+        },
+        {
+          "command": "moneyGlitch.selectedDetail",
+          "when": "view == stocks",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -185,9 +199,10 @@
           "type": "array",
           "default": [
             "SH000001",
+            "SZ399006",
+            "SH000688",
             "SH000300",
-            "SH000016",
-            "SH000688"
+            "SH000016"
           ],
           "description": "List of stock symbol"
         },
@@ -254,6 +269,7 @@
     "axios": "^1.16.1",
     "dayjs": "^1.11.20",
     "decimal.js": "^10.6.0",
-    "iconv-lite": "^0.7.2"
+    "iconv-lite": "^0.7.2",
+    "node-cron": "^4.2.1"
   }
 }
