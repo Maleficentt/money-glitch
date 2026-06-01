@@ -5,7 +5,6 @@ import { Position, Stock } from './utils/types'
 import StockManager from './utils/stock-manager'
 import Decimal from 'decimal.js'
 import dayjs from 'dayjs'
-import isETF from './utils/is-etf'
 
 export class StatusBarManager {
   private static instance: StatusBarManager
@@ -96,10 +95,9 @@ export class StatusBarManager {
   }
 
   private formatStatusBarText(stock: Stock): string {
-    const { code, name, quote } = stock
+    const { name, quote, type } = stock
     const { current, percent } = quote
-    const isETFStock = isETF(code)
-    const currentFormat = isETFStock ? current.toFixed(3) : current.toFixed(2)
+    const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
     const percentFormat = percent.toFixed(2)
     return `${this.shortenName(name)} ${currentFormat} ${percentFormat}%`
   }
@@ -128,11 +126,11 @@ export class StatusBarManager {
 
   private formatTooltip(stock: Stock): string {
     const { name, symbol, quote } = stock
-    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, time } = quote
+    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
     const quantity = Math.floor(volume / lotSize)
     const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
     const formatAmount = amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万`
-    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(time).format('MM-DD HH:mm:ss')}`
+    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
   }
 
   async addStockToStatusBar(stock: Stock): Promise<boolean> {

@@ -4,10 +4,23 @@ import ConfigManager from './utils/config-manger'
 import { StatusBarManager } from './status-bar'
 import createPositionWebview from './utils/position-webview'
 import StockManager from './utils/stock-manager'
+import createSelectedWebview from './utils/selected-webview'
+import * as cron from 'node-cron'
+import { ScheduledTask } from 'node-cron'
 
 process.env.TZ = 'Asia/Shanghai'
 
+let task: ScheduledTask | null = null
+
 export function activate(context: vscode.ExtensionContext) {
+
+  task = cron.schedule('0 9 * * *', async () => {
+    console.log('任务开始执行...', new Date().toISOString())
+  }, {
+    timezone: 'Asia/Shanghai'
+  })
+  task.start()
+
   const configManager = ConfigManager.getInstance()
 
   const stockManager = StockManager.getInstance()
@@ -72,6 +85,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('moneyGlitch.setStockPosition', (stockItem) => {
       stockManager.tradeStock(stockItem.stock, -1)
     }),
+    vscode.commands.registerCommand('moneyGlitch.selectedDetail', () => {
+      createSelectedWebview(context)
+    }),
     {
       dispose: () => {
         statusBarManager.dispose()
@@ -84,4 +100,6 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
   const statusBarManager = StatusBarManager.getInstance()
   statusBarManager.dispose()
+
+  task!.stop()
 }

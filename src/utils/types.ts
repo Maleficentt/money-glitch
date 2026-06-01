@@ -22,7 +22,7 @@ export interface Quote {
   status: string                 // 交易状态(中文)
   statusId: number               // 交易状态(数字 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘)
   isTrade: boolean               // 是否正在交易（不包含集合竞价， 港股一直为false）
-  time: number                   // 行情数据的生成时间戳（毫秒）
+  timestamp: number                   // 行情数据的生成时间戳（毫秒）
   [key: string]: unknown         // 允许任何字符串作为键名
 }
 
@@ -40,6 +40,8 @@ export interface Position {
   cost: number                 // 成本（元）
   shares: number               // 股数
   tradeRecords?: TradeRecord[] // 交易记录
+  lastCost?: number            // 昨日成本
+  lastShares?: number          // 昨日持股数
 }
 
 // 盈利
@@ -56,6 +58,7 @@ export interface Stock {
   symbol: string          // 完整的股票代码，包含交易所前缀（SZ：深交所，SH：上交所）
   code: string            // 纯数字股票代码
   name: string            // 股票的中文简称
+  type: number            // 0：美股 11：沪深主板、创业板 12：指数 13：etf 30:港股  81: 板块  82：科创 
   quote: Quote            // 行情
   position?: Position     // 持仓
   profit?: Profit         // 盈亏

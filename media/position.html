@@ -91,6 +91,16 @@
       color: #093;
     }
 
+    .el-table .hidden-column .cell {
+      display: none;
+    }
+
+    .expand-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-evenly;
+    }
+
     .footer {
       margin-top: 8px;
       text-align: center;
@@ -121,23 +131,12 @@
       background-color: var(--vscode-list-hoverBackground);
     }
 
-    tr.hover-row {
-
-      &,
-      &.el-table__row--striped {
-
-        &,
-        &.current-row,
-        &.selection-row {
-          >td.el-table__cell {
-            background-color: var(--vscode-list-hoverBackground);
-          }
-        }
-      }
-    }
-
     tr.current-row>td.el-table__cell,
     tr.selection-row>td.el-table__cell {
+      background-color: var(--vscode-list-hoverBackground);
+    }
+
+    .el-table__body tr.hover-row>td.el-table__cell {
       background-color: var(--vscode-list-hoverBackground);
     }
 
@@ -149,6 +148,12 @@
     .el-table:before {
       height: 0;
     }
+
+    .el-table .ascending .sort-caret.ascending,
+    .el-table .descending .sort-caret.descending {
+      color: var(--vscode-button-foreground);
+    }
+
 
     .el-button {
       color: var(--vscode-editor-foreground);
@@ -288,7 +293,19 @@
       </div>
     </div>
     <div class="table-wrapper">
-      <el-table height="100%" :data="stockList">
+      <el-table ref="table" height="100%" :data="stockList" @row-click="handleRowClick">
+        <el-table-column type="expand" fixed="left" width="1" class-name="hidden-column">
+          <template slot-scope="{ row }">
+            <div class="expand-wrapper">
+              <el-link icon="el-icon-folder-checked" type="primary" :underline="false"
+                @click="showHoldForm(row)">持仓</el-link>
+              <el-link icon="el-icon-download" type="primary" :underline="false"
+                @click="showTradeForm(row, 1)">买入</el-link>
+              <el-link icon="el-icon-upload2" type="primary" :underline="false"
+                @click="showTradeForm(row, 2)">卖出</el-link>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="marketValue" label="市值" min-width="100" fixed="left" sortable>
           <template slot-scope="{ row }">
             <div class="table-cell">
@@ -325,14 +342,6 @@
         <el-table-column prop="marketValue" label="仓位" min-width="100">
           <template slot-scope="{ row }">
             <span>{{ calculatePositionRate(row.marketValue) }}%</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="action" label="操作" width="100" fixed="right">
-          <template slot-scope="{ row }">
-            <div class="table-cell">
-              <el-link type="primary" :underline="false" @click="showHoldForm(row)">持仓设置</el-link>
-              <el-link type="primary" :underline="false" @click="showTradeForm(row)">股票交易</el-link>
-            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -481,6 +490,9 @@
         calculatePositionRate(marketValue) {
           return Math.round(marketValue / this.totalMarketValue * 10000) / 100
         },
+        handleRowClick(row) {
+          this.$refs.table.toggleRowExpansion(row)
+        },
         handlePosition() {
           this.isSpecifyTrade = false
           this.holdFormData = {
@@ -516,12 +528,12 @@
           })
           this.holdFormVisible = false
         },
-        showTradeForm(row) {
+        showTradeForm(row, type = '') {
           this.isSpecifyTrade = true
           this.tradeFormData = {
             symbol: row.symbol,
-            type: '',
-            price: '',
+            type,
+            price: row.quote.current || '',
             shares: ''
           }
           this.tradeFormVisible = true

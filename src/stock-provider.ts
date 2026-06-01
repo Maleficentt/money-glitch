@@ -4,7 +4,6 @@ import dayjs from 'dayjs'
 import ConfigManager from './utils/config-manger'
 import { queryStock } from './utils/data-service'
 import StockManager from './utils/stock-manager'
-import isETF from './utils/is-etf'
 
 class StockGroupItem extends vscode.TreeItem {
   constructor(
@@ -26,10 +25,10 @@ class StockItem extends vscode.TreeItem {
     isIndex: boolean,
     context: vscode.ExtensionContext
   ) {
-    const { code, name, quote } = stock
+    const { name, quote, type } = stock
     const { percent, current } = quote
     const percentFormat = percent.toFixed(2)
-    const currentFormat = isETF(code) ? current.toFixed(3) : current.toFixed(2)
+    const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
     const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(12, ' ')}    ${name}`
     super(label, vscode.TreeItemCollapsibleState.None)
 
@@ -44,11 +43,11 @@ class StockItem extends vscode.TreeItem {
 
   private static formatTooltip(stock: Stock): string {
     const { name, symbol, quote } = stock
-    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, time } = quote
+    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
     const quantity = Math.floor(volume / lotSize)
     const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
     const formatAmount = amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万`
-    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(time).format('MM-DD HH:mm:ss')}`
+    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
   }
 }
 
@@ -154,7 +153,7 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
   async addStock(): Promise<void> {
     const quickPick = vscode.window.createQuickPick()
-    quickPick.items = [{ label: '请输入关键词查询，如：0000001 或 上证指数; 期货输入大写字母开头' }]
+    quickPick.items = [{ label: '请输入股票名称或代码' }]
     let selectedSymbol: string | undefined
     let timer: NodeJS.Timeout | null
     quickPick.onDidChangeValue((value) => {

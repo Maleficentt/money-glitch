@@ -93,13 +93,14 @@ export function getStockData(symbolList: string[], config = {}): Promise<Stock[]
             }
             quote.status = status as string
             quote.statusId = status_id as number
-            const { exchange, symbol, code, name } = quote as Quote
+            const { exchange, symbol, code, name, type } = quote as Quote
             const stock: Stock = {
               region: region as string,
               exchange: exchange as Exchange,
               symbol: symbol as string,
               code: code as string,
               name: name as string,
+              type: type as number,
               quote
             }
             stocks.push(stock)

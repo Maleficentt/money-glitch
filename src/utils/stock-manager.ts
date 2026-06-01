@@ -1,7 +1,7 @@
 import dayjs from 'dayjs'
 import ConfigManager from './config-manger'
 import { getRealtimeQuote, getStockData } from './data-service'
-import { Stock, TradeRecord } from './types'
+import { Position, Profit, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
 import isETF from './is-etf'
 import Decimal from 'decimal.js'
@@ -21,6 +21,7 @@ class StockManager {
   private static instance: StockManager
   private configManager = ConfigManager.getInstance()
   private stockList: Stock[] = []
+  private stockDataTimer: NodeJS.Timeout | null = null
   private commonRealtimeQuoteTimer: NodeJS.Timeout | null = null
   private HKRealtimeQuoteTimer: NodeJS.Timeout | null = null
   private marketTimerList: NodeJS.Timeout[] = []
@@ -39,19 +40,25 @@ class StockManager {
     return StockManager.instance
   }
 
-  getStockData() {
-    console.log('getStockData')
+  getStockData(isRefresh = false) {
+    console.log('getStockData', new Date())
     this.stockDataController.abort()
     this.stockDataController = new AbortController()
+    if (isRefresh && this.stockDataTimer) {
+      clearTimeout(this.stockDataTimer)
+    }
     const stockSymbols = this.configManager.getStockSymbols()
-    const selectedStockList: Stock[] = []
-    this.stockList.forEach(stock => {
-      if (stockSymbols.includes(stock.symbol)) {
-        selectedStockList.push(stock)
-      }
-    })
-    this.stockList = selectedStockList
-    const restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
+    let restSymbols = stockSymbols
+    if (!isRefresh) {
+      const selectedStockList: Stock[] = []
+      this.stockList.forEach(stock => {
+        if (stockSymbols.includes(stock.symbol)) {
+          selectedStockList.push(stock)
+        }
+      })
+      this.stockList = selectedStockList
+      restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
+    }
     if (restSymbols.length) {
       getStockData(restSymbols, { signal: this.stockDataController.signal }).then(data => {
         this.stockList.push(...data)
@@ -72,11 +79,16 @@ class StockManager {
           }
         })
         this.getRealtimeQuote(marketStatus, openingSymbols, openingHKSymbols)
+        if (isRefresh) {
+          this.stockDataTimer = setTimeout(() => {
+            this.getStockData(true)
+          }, 600000)
+        }
       }).catch(err => {
         console.log(err)
         const errData = err.toJSON()
         if (errData.code !== 'ERR_CANCELED') {
-          setTimeout(() => {
+          this.stockDataTimer = setTimeout(() => {
             this.getStockData()
           }, 1000)
         }
@@ -92,6 +104,9 @@ class StockManager {
     commonSymbols: string[] = [],
     hkSymbols: string[] = []
   ) {
+    this.marketTimerList.forEach(timer => {
+      clearTimeout(timer)
+    })
     // 交易中立刻获取实时行情，计算什么时候收盘
     // 休盘中算到下一次开盘时间
     // 已收盘/休市算到第二天开市
@@ -225,7 +240,7 @@ class StockManager {
           // let yestAmount = lastClose * shares // 昨日持仓市值
           const totalProfit = new Decimal(current).sub(cost).mul(shares) // 总盈亏
           let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
-          const isEtfStock = isETF(item.code)
+          const isEtfStock = item.type === 13
           const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
           const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
           const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
@@ -292,13 +307,16 @@ class StockManager {
   }
 
   refresh() {
-    this.getStockData()
+    this.getStockData(true)
   }
 
   dispose() {
     this.stockDataController.abort()
     this.commonRealtimeQuoteController.abort()
     this.HKRealtimeQuoteController.abort()
+    if (this.stockDataTimer) {
+      clearTimeout(this.stockDataTimer)
+    }
     if (this.commonRealtimeQuoteTimer) {
       clearTimeout(this.commonRealtimeQuoteTimer)
     }
@@ -325,14 +343,22 @@ class StockManager {
     const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
     const commission = Math.max(Number(commissionTemp) ? 0 : 5)
-    const oldCost = stockPosition.cost || 0
-    const newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).div(newShares).toFixed(4)
-    const stockData = {
+    const oldCost = stockPosition.cost ?? 0
+    let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).div(newShares).toFixed(4)
+    if (oldCost === 0) {
+      const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
+      const todayProfit = profit.todayProfit ?? 0
+      // （新买入总金额 + 买入手续费 - 卖出总收入）÷ 新买入股数
+      newCost = new Decimal(price).mul(shares).add(commission).sub(todayProfit).div(shares).toFixed(4)
+    }
+    const stockData: Position = {
       cost: Number(newCost),
       shares: newShares,
       tradeRecords: tradeRecords
     }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
+      stockData.lastCost = oldCost
+      stockData.lastShares = oldShares
       stockData.tradeRecords = [{
         type,
         price,
@@ -363,12 +389,14 @@ class StockManager {
     const newShares = oldShares - shares
     const oldCost = stockPosition.cost || 0
     const newCost = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).div(newShares).toFixed(4)
-    const stockData = {
+    const stockData: Position = {
       cost: newShares > 0 ? Number(newCost) : 0,
       shares: newShares,
       tradeRecords: tradeRecords
     }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
+      stockData.lastCost = oldCost
+      stockData.lastShares = oldShares
       stockData.tradeRecords = [{
         type,
         price,
