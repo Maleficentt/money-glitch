@@ -392,7 +392,21 @@ class StockManager {
     const oldShares = stockPosition.shares || 0
     const newShares = oldShares - shares
     const oldCost = stockPosition.cost || 0
-    const newCost = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).div(newShares).toFixed(4)
+    const isEtfStock = isETF(symbol as string)
+    const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
+    const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
+    const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
+    const transferRate = this.configManager.getConfig('transferRate', 0)
+    const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
+    const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
+    const commission = Math.max(Number(commissionTemp), 5)
+    let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
+    if (!isEtfStock) {
+      const stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
+      const transfer = new Decimal(price).mul(shares).mul(transferRate).toFixed(2)
+      marketCapital = marketCapital.add(stampTax).add(transfer)
+    }
+    const newCost = marketCapital.div(newShares).toFixed(4)
     const stockData: Position = {
       cost: newShares > 0 ? Number(newCost) : 0,
       shares: newShares,
