@@ -14,17 +14,17 @@ let task: ScheduledTask | null = null
 
 export function activate(context: vscode.ExtensionContext) {
 
-  task = cron.schedule('0 9 * * *', async () => {
-    console.log('任务开始执行...', new Date().toISOString())
-  }, {
-    timezone: 'Asia/Shanghai'
-  })
-  task.start()
-
   const configManager = ConfigManager.getInstance()
 
   const stockManager = StockManager.getInstance()
   stockManager.refresh()
+
+  task = cron.schedule('0 9 * * *', async () => {
+    stockManager.resetProfit()
+  }, {
+    timezone: 'Asia/Shanghai'
+  })
+  task.start()
 
   const statusBarManager = StatusBarManager.getInstance()
 
@@ -100,6 +100,9 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
   const statusBarManager = StatusBarManager.getInstance()
   statusBarManager.dispose()
+
+  const stockManager = StockManager.getInstance()
+  stockManager.dispose()
 
   task!.stop()
 }

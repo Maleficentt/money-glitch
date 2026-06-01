@@ -164,7 +164,7 @@ export function queryStock(code: string): Promise<[]> {
         'User-Agent': 'Mozilla/5.0'
       }
     }).then(res => {
-      const stocks = res.data.stocks.filter((item: Record<string, unknown>) => item.stock_id !== 0) || []
+      const stocks = res.data.stocks.filter((item: Record<string, unknown>) => item.exchange !== 'F') || []
       return stocks
     }).catch(error => {
       return Promise.reject(error)

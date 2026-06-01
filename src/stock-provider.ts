@@ -169,7 +169,7 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
       }, 100) // 简单防抖
     })
     quickPick.onDidChangeSelection((e) => {
-      if (e[0].description) {
+      if (e[0].label) {
         selectedSymbol = e[0].label && e[0].label.split(' | ')[0]
       }
     })
@@ -181,6 +181,26 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
       await this.configManager.addStockSymbol(selectedSymbol)
       quickPick.hide()
       quickPick.dispose()
+    })
+  }
+
+  private async getStockSuggestList(searchText = ''): Promise<vscode.QuickPickItem[]> {
+    if (!searchText) {
+      return Promise.resolve([{ label: '添加自选股票' }])
+    }
+    const result: vscode.QuickPickItem[] = []
+
+    return queryStock(searchText).then(stockList => {
+      stockList.forEach((item: Record<string, string>) => {
+        const { code, name, ind_name } = item
+        result.push({
+          label: `${code} | ${name}`,
+          description: ind_name ?? ''
+        })
+      })
+      return Promise.resolve(result)
+    }).catch(() => {
+      return Promise.resolve([{ label: '股票查询失败，请重试' }])
     })
   }
 
@@ -221,26 +241,6 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
   refresh(): void {
     this.changeEmitter.fire()
-  }
-
-  private async getStockSuggestList(searchText = ''): Promise<vscode.QuickPickItem[]> {
-    if (!searchText) {
-      return Promise.resolve([{ label: '添加自选股票' }])
-    }
-    const result: vscode.QuickPickItem[] = []
-
-    return queryStock(searchText).then(stockList => {
-      stockList.forEach((item: Record<string, string>) => {
-        const { code, name, ind_name } = item
-        result.push({
-          label: `${code} | ${name}`,
-          description: ind_name ?? ''
-        })
-      })
-      return Promise.resolve(result)
-    }).catch(() => {
-      return Promise.resolve([{ label: '股票查询失败，请重试' }])
-    })
   }
 }
 

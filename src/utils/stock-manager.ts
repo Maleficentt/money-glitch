@@ -310,6 +310,24 @@ class StockManager {
     return this.stockList
   }
 
+  resetProfit() {
+    const stockList: Stock[] = []
+    this.stockList.map(item => {
+      const stock = { ...item }
+      if (stock.profit) {
+        stock.profit = {
+          totalProfit: 0,
+          totalProfitRate: 0,
+          todayProfit: 0,
+          todayProfitRate: 0
+        }
+      }
+      stockList.push(stock)
+    })
+    this.stockList = stockList
+    this._onDidChangeStockList.fire(this.stockList)
+  }
+
   refresh() {
     this.getStockData(true)
   }
