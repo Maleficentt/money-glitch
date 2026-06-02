@@ -44,27 +44,80 @@
     }
 
     .index-item {
-      height: 80px;
-      padding: 0;
+      width: 200px;
+      padding: 12px 16px;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: space-evenly;
-      font-size: 16px;
+      font-size: 14px;
       flex: 0 0 auto;
+      border-radius: 8px;
+      background-color: #f4f5f8;
     }
 
     .index-item+.index-item {
-      margin-left: 16px;
+      margin-left: 8px;
     }
 
-    .index-item span {
-      padding: 0 4px;
+    .index-item.profit {
+      background-color: #fff6f6;
+    }
+
+    .index-item.loss {
+      background-color: #f1f9f6;
+    }
+
+    .index-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+
+    .index-row-1 {
+      justify-content: space-between;
+    }
+
+    .index-current {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .chart-wrapper {
+      width: 120px;
+      height: 48px;
+    }
+
+    .chart-wrapper .chart {
+      transform: scale(0.5);
     }
 
     .index-name {
       font-size: 14px;
       color: var(--vscode-editor-foreground);
+      margin-right: 8px;
+    }
+
+    .index-percent {
+      font-weight: 700;
+    }
+
+    .price-line {
+      stroke-width: 1.8;
+      fill: none;
+    }
+
+    .index-item.profit .price-line {
+      stroke: #ee2500
+    }
+
+    .index-item.loss .price-line {
+      stroke: #093
+    }
+
+    .prev-close-line {
+      stroke: #ccd0d9;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 10, 10;
     }
 
     .profit {
@@ -137,6 +190,14 @@
 
     .stock-symbol .hk-symbol {
       background-color: #CF5BF2;
+      padding: 2px;
+      color: #fff;
+      font-size: 10px;
+      margin-right: 2px;
+    }
+
+    .stock-symbol .us-symbol {
+      background-color: #4985FF;
       padding: 2px;
       color: #fff;
       font-size: 10px;
@@ -339,16 +400,21 @@
 
 <body>
   <div id="app">
-    <div class="header">
-    </div>
     <div class="index-wrapper">
       <div v-for="item in indexList" :key="item.symbol"
         :class="['index-item', { profit: item.quote.current > item.quote.lastClose, loss: item.quote.current < item.quote.lastClose }]">
-        <span class="index-name">{{ item.name }}</span>
-        <span>{{ item.quote.current.toFixed(2) }}</span>
-        <div>
-          <span>{{ item.quote.chg.toFixed(2) }}</span>
-          <span>{{ item.quote.percent.toFixed(2) }}%</span>
+        <div class="index-row index-row-1">
+          <span class="index-current">{{ item.quote.current.toFixed(2) }}</span>
+          <div class="chart-wrapper">
+            <svg ref="chart" class="chart" width="120" height="48" viewBox="0 0 242 48" preserveAspectRatio="none">
+              <path d="" class="prev-close-line"></path>
+              <path d="" class="price-line"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="index-row">
+          <span class="index-name">{{ item.name }}</span>
+          <span class="index-percent">{{ item.quote.percent > 0 ? '+' : '' }}{{ item.quote.percent.toFixed(2) }}%</span>
         </div>
       </div>
     </div>
@@ -372,6 +438,7 @@
                   <span class="stock-name">{{ row.name }}</span>
                   <div class="stock-symbol">
                     <span class="hk-symbol" v-if="row.type === 30">HK</span>
+                    <span class="us-symbol" v-if="row.type === 82">US</span>
                     <span>{{ row.symbol }}</span>
                   </div>
                 </div>
@@ -386,6 +453,8 @@
                     @click="showTradeForm(row, 1)">买入</el-link>
                   <el-link icon="el-icon-upload2" type="primary" :underline="false" class="expand-button"
                     @click="showTradeForm(row, 2)">卖出</el-link>
+                  <el-link icon="el-icon-delete" type="primary" :underline="false" class="expand-button"
+                    @click="removeSelected(row)">删除</el-link>
                 </div>
               </template>
             </el-table-column>
@@ -404,12 +473,12 @@
                 <span :class="getClass(row)">{{ row.quote.percent.toFixed(2) }}%</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.volume" label="成交量" min-width="100" sortable align="right">
+            <el-table-column prop="quote.volume" label="成交量" min-width="110" sortable align="right">
               <template slot-scope="{ row }">
                 <span>{{ row.quote.volume | formatQuantity(row.quote.lotSize) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.amount" label="成交额" min-width="100" sortable align="right">
+            <el-table-column prop="quote.amount" label="成交额" min-width="110" sortable align="right">
               <template slot-scope="{ row }">
                 <span>{{ row.quote.amount | formatAmount }}</span>
               </template>
@@ -459,6 +528,7 @@
                   <span class="stock-name">{{ row.name }}</span>
                   <div class="stock-symbol">
                     <span class="hk-symbol" v-if="row.type === 30">HK</span>
+                    <span class="us-symbol" v-if="row.type === 82">US</span>
                     <span>{{ row.symbol }}</span>
                   </div>
                 </div>
@@ -555,8 +625,8 @@
           <el-input-number v-model="holdFormData.cost" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="数量">
-          <el-input-number v-model="holdFormData.shares" size="small" controls-position="right"
-            :min="0"></el-input-number>
+          <el-input-number v-model="holdFormData.shares" size="small" controls-position="right" :min="0"
+            :step="lotSize"></el-input-number>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -585,8 +655,8 @@
           <el-input-number v-model="tradeFormData.price" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="成交数量">
-          <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right"
-            :min="0"></el-input-number>
+          <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right" :min="0"
+            :step="lotSize"></el-input-number>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -608,17 +678,18 @@
         holdFormVisible: false,
         holdFormData: {
           symbol: '',
-          cost: '',
-          shares: ''
+          cost: null,
+          shares: null
         },
         tradeFormVisible: false,
         tradeFormData: {
           symbol: '',
           type: '',
-          price: '',
-          shares: ''
+          price: null,
+          shares: null
         },
         isSpecifyTrade: true,
+        lotSize: 100,
         suggestStockList: [],
         loading: false
       },
@@ -653,8 +724,11 @@
         window.addEventListener('message', (event) => {
           const message = event.data
           switch (message.command) {
-            case 'init':
-              this.initStockList(message.data)
+            case 'refresh':
+              this.init(message.data)
+              break
+            case 'refreshMinute':
+              this.initChart(message.data)
               break
             case 'queryStockResponse': {
               this.suggestStockList = message.data
@@ -667,11 +741,49 @@
         })
       },
       methods: {
-        initStockList({ indices, stocks }) {
-          this.indexList = [...indices]
-          this.stockList = [...stocks]
-          this.holdList = stocks.filter(item => !!item.profit)
-          console.log(stocks)
+        init({ indices, stocks }) {
+          if (Array.isArray(indices)) {
+            this.indexList = [...indices]
+          }
+          if (Array.isArray(stocks)) {
+            this.stockList = [...stocks]
+            this.holdList = stocks.filter(item => !!item.profit)
+          }
+        },
+        initChart(minuteData) {
+          setTimeout(() => {
+            this.indexList.forEach((item, index) => {
+              this.initChartItem(minuteData[item.symbol], index)
+            })
+          }, 300)
+        },
+        initChartItem(minuteData, index) {
+          console.log(minuteData, index)
+          if (!Array.isArray(minuteData) || !minuteData.length) return
+          const chgList = minuteData.map(item => item.chg)
+          console.log(chgList, index)
+          const maxChg = Math.max(...chgList)
+          const minChg = Math.min(...chgList)
+          console.log(maxChg, minChg)
+          const diff = maxChg - minChg
+          const yList = chgList.map(item => {
+            const y = Math.abs(item - maxChg) / diff * 48
+            return y
+          })
+          if (0 > minChg && 0 < maxChg) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const y = Math.abs(0 - maxChg) / diff * 48
+            const d = `M0 ${y} L242 ${y}`
+            this.$refs.chart[index].children[0].setAttribute('d', d)
+          } else {
+            this.$refs.chart[index].children[0].setAttribute('d', '')
+          }
+          // 折线路径
+          let lineD = `M 0 ${Number(yList[0].toFixed(2))}`;
+          for (let i = 1; i < yList.length; i++) {
+            lineD += ` L ${i} ${Number(yList[i].toFixed(2))}`;
+          }
+          this.$refs.chart[index].children[1].setAttribute('d', lineD)
         },
         getClass(stock, compareProp = 'current') {
           let className = ''
@@ -699,8 +811,8 @@
           this.isSpecifyTrade = false
           this.holdFormData = {
             symbol: '',
-            cost: '',
-            shares: ''
+            cost: null,
+            shares: null
           }
           this.holdFormVisible = true
         },
@@ -709,8 +821,8 @@
           this.tradeFormData = {
             symbol: '',
             type: '',
-            price: '',
-            shares: ''
+            price: null,
+            shares: null
           }
           this.tradeFormVisible = true
         },
@@ -721,6 +833,7 @@
             cost: row.position.cost,
             shares: row.position.shares
           }
+          this.lotSize = row.quote.lotSize || 100
           this.holdFormVisible = true
         },
         submitHoldForm() {
@@ -736,8 +849,9 @@
             symbol: row.symbol,
             type,
             price: row.quote.current || '',
-            shares: ''
+            shares: null
           }
+          this.lotSize = row.quote.lotSize || 100
           this.tradeFormVisible = true
         },
         submitTradeForm() {
@@ -757,6 +871,12 @@
           } else {
             this.suggestStockList = []
           }
+        },
+        removeSelected (row) {
+          this.vscode.postMessage({
+            command: 'deleteStock',
+            data: row.symbol
+          })
         }
       }
     })

@@ -181,17 +181,7 @@
             "SH000001",
             "SZ399001",
             "SZ399006",
-            "SH000688",
-            "SH000688",
-            "SH000016",
-            "SH000300",
-            "BJ899050",
-            "HKHSI",
-            "HKHSCEI",
-            "HKHSTECH",
-            ".DJI",
-            ".IXIC",
-            ".INX"
+            "SH000688"
           ],
           "description": "List of index symbol"
         },
@@ -199,10 +189,9 @@
           "type": "array",
           "default": [
             "SH000001",
+            "SZ399001",
             "SZ399006",
-            "SH000688",
-            "SH000300",
-            "SH000016"
+            "SH000688"
           ],
           "description": "List of stock symbol"
         },

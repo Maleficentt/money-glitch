@@ -14,20 +14,30 @@ import * as vscode from 'vscode'
 
 const marketOpenTime: Record<string, number[][][]> = {
   CN: [[[9, 15], [11, 30]], [[13], [15]]],
-  HK: [[[9], [12]], [[13], [16]]]
+  HK: [[[9], [12]], [[13], [16]]],
+  US: [[[21, 30], [5]]]
 }
 
+const marketTimerInterval: Record<string, number> = {
+  CN: 2000,
+  HK: 10000,
+  US: 2000
+}
+
+interface MarketController {
+  status: number
+  symbols: string[]
+  abortController: AbortController
+  marketTimer: NodeJS.Timeout | null
+  quoteTimer: NodeJS.Timeout | null
+}
 class StockManager {
   private static instance: StockManager
   private configManager = ConfigManager.getInstance()
   private stockList: Stock[] = []
   private stockDataTimer: NodeJS.Timeout | null = null
-  private commonRealtimeQuoteTimer: NodeJS.Timeout | null = null
-  private HKRealtimeQuoteTimer: NodeJS.Timeout | null = null
-  private marketTimerList: NodeJS.Timeout[] = []
   private stockDataController = new AbortController()
-  private commonRealtimeQuoteController = new AbortController()
-  private HKRealtimeQuoteController = new AbortController()
+  private marketController: Record<string, MarketController> = {}
   private _onDidChangeStockList = new EventEmitter<Stock[]>()
   readonly onDidChangeStockList = this._onDidChangeStockList.event
 
@@ -41,14 +51,13 @@ class StockManager {
   }
 
   getStockData(isRefresh = false) {
-    console.log('getStockData', new Date())
     this.stockDataController.abort()
     this.stockDataController = new AbortController()
     if (isRefresh && this.stockDataTimer) {
       clearTimeout(this.stockDataTimer)
     }
     const stockSymbols = this.configManager.getStockSymbols()
-    let restSymbols = stockSymbols
+    let restSymbols = Array.from(new Set([...stockSymbols]))
     if (!isRefresh) {
       const selectedStockList: Stock[] = []
       this.stockList.forEach(stock => {
@@ -69,20 +78,7 @@ class StockManager {
         this.formatStockList()
         this.sort()
         this._onDidChangeStockList.fire(this.stockList)
-        const openingSymbols: string[] = []
-        const openingHKSymbols: string[] = []
-        const marketStatus: Record<string, number> = {}
-        this.stockList.forEach(item => {
-          marketStatus[item.region] = item.quote.statusId
-          if ([3, 5].includes(item.quote.statusId)) {
-            if (item.region === 'HK') {
-              openingHKSymbols.push(item.symbol)
-            } else {
-              openingSymbols.push(item.symbol)
-            }
-          }
-        })
-        this.getRealtimeQuote(marketStatus, openingSymbols, openingHKSymbols)
+        this.getMarketQuote()
         if (isRefresh) {
           this.stockDataTimer = setTimeout(() => {
             this.getStockData(true)
@@ -103,25 +99,39 @@ class StockManager {
     }
   }
 
-  private getRealtimeQuote(
-    marketStatus: Record<string, number> = {},
-    commonSymbols: string[] = [],
-    hkSymbols: string[] = []
-  ) {
-    this.marketTimerList.forEach(timer => {
-      clearTimeout(timer)
+  private getMarketQuote() {
+    Object.keys(this.marketController).forEach(region => {
+      const { marketTimer, abortController, quoteTimer } = this.marketController[region]
+      if (marketTimer) {
+        clearTimeout(marketTimer)
+      }
+      abortController.abort()
+      if (quoteTimer) {
+        clearTimeout(quoteTimer)
+      }
+    })
+    this.marketController = {}
+    this.stockList.forEach(item => {
+      if (this.marketController[item.region]) {
+        this.marketController[item.region].status = item.quote.statusId
+        this.marketController[item.region].symbols.push(item.symbol)
+      } else {
+        this.marketController[item.region] = {
+          status: item.quote.statusId,
+          symbols: [item.symbol],
+          abortController: new AbortController(),
+          marketTimer: null,
+          quoteTimer: null
+        }
+      }
     })
     // 交易中立刻获取实时行情，计算什么时候收盘
     // 休盘中算到下一次开盘时间
     // 已收盘/休市算到第二天开市
-    Object.keys(marketStatus).forEach(region => {
-      const status = marketStatus[region]
+    Object.keys(this.marketController).forEach(region => {
+      const { status } = this.marketController[region]
       if ([3, 5].includes(status)) { // 交易中
-        if (region !== 'HK') {
-          this.getCommonRealtimeQuote(commonSymbols)
-        } else {
-          this.getHKRealtimeQuote(hkSymbols)
-        }
+        this.getRealtimeQuote(region)
         let endTime: number[] = []
         const timeList = marketOpenTime[region]
         for (let i = timeList.length - 1; i >= 0; i--) {
@@ -136,7 +146,7 @@ class StockManager {
           this.stockList = []
           this.getStockData()
         }, countdown)
-        this.marketTimerList.push(timer)
+        this.marketController[region].marketTimer = timer
       } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
@@ -153,31 +163,21 @@ class StockManager {
           this.stockList = []
           this.getStockData()
         }, countdown)
-        this.marketTimerList.push(timer)
-        if (region !== 'HK') {
-          this.commonRealtimeQuoteController.abort()
-          if (this.commonRealtimeQuoteTimer) {
-            clearTimeout(this.commonRealtimeQuoteTimer)
-          }
-        } else {
-          this.HKRealtimeQuoteController.abort()
-          if (this.HKRealtimeQuoteTimer) {
-            clearTimeout(this.HKRealtimeQuoteTimer)
-          }
-        }
+        this.marketController[region].marketTimer = timer
       }
     })
   }
 
-  private getCommonRealtimeQuote(symbols: string[] = []) {
-    console.log('getCommonRealtimeQuote')
-    this.commonRealtimeQuoteController.abort()
-    this.commonRealtimeQuoteController = new AbortController()
-    if (this.commonRealtimeQuoteTimer) {
-      clearTimeout(this.commonRealtimeQuoteTimer)
+  private getRealtimeQuote(region: string) {
+    const { symbols, abortController, quoteTimer } = this.marketController[region]
+    abortController.abort()
+    if (quoteTimer) {
+      clearTimeout(quoteTimer)
     }
+    const newAbortController = new AbortController()
+    this.marketController[region].abortController = newAbortController
     if (symbols.length) {
-      getRealtimeQuote(symbols, { signal: this.commonRealtimeQuoteController.signal }).then(quoteMap => {
+      getRealtimeQuote(symbols, { signal: newAbortController.signal }).then(quoteMap => {
         this.stockList.forEach(item => {
           if (quoteMap[item.symbol]) {
             Object.assign(item.quote, quoteMap[item.symbol])
@@ -185,45 +185,15 @@ class StockManager {
         })
         this.formatStockList()
         this._onDidChangeStockList.fire(this.stockList)
-        this.commonRealtimeQuoteTimer = setTimeout(() => {
-          this.getCommonRealtimeQuote(symbols)
-        }, 2000)
+        this.marketController[region].quoteTimer = setTimeout(() => {
+          this.getRealtimeQuote(region)
+        }, marketTimerInterval[region])
       }).catch(err => {
         const errData = err.toJSON()
         if (errData.code !== 'ERR_CANCELED') {
-          this.commonRealtimeQuoteTimer = setTimeout(() => {
-            this.getCommonRealtimeQuote(symbols)
-          }, 2000)
-        }
-      })
-    }
-  }
-
-  private getHKRealtimeQuote(symbols: string[] = []) {
-    console.log('getHKRealtimeQuote')
-    this.HKRealtimeQuoteController.abort()
-    this.HKRealtimeQuoteController = new AbortController()
-    if (this.HKRealtimeQuoteTimer) {
-      clearTimeout(this.HKRealtimeQuoteTimer)
-    }
-    if (symbols.length) {
-      getRealtimeQuote(symbols, { signal: this.HKRealtimeQuoteController.signal }).then(quoteMap => {
-        this.stockList.forEach(item => {
-          if (quoteMap[item.symbol]) {
-            Object.assign(item.quote, quoteMap[item.symbol])
-          }
-        })
-        this.formatStockList()
-        this._onDidChangeStockList.fire(this.stockList)
-        this.HKRealtimeQuoteTimer = setTimeout(() => {
-          this.getHKRealtimeQuote(symbols)
-        }, 10000)
-      }).catch(err => {
-        const errData = err.toJSON()
-        if (errData.code !== 'ERR_CANCELED') {
-          this.HKRealtimeQuoteTimer = setTimeout(() => {
-            this.getHKRealtimeQuote(symbols)
-          }, 10000)
+          this.marketController[region].quoteTimer = setTimeout(() => {
+            this.getRealtimeQuote(region)
+          }, marketTimerInterval[region])
         }
       })
     }
@@ -334,20 +304,20 @@ class StockManager {
 
   dispose() {
     this.stockDataController.abort()
-    this.commonRealtimeQuoteController.abort()
-    this.HKRealtimeQuoteController.abort()
     if (this.stockDataTimer) {
       clearTimeout(this.stockDataTimer)
     }
-    if (this.commonRealtimeQuoteTimer) {
-      clearTimeout(this.commonRealtimeQuoteTimer)
-    }
-    if (this.HKRealtimeQuoteTimer) {
-      clearTimeout(this.HKRealtimeQuoteTimer)
-    }
-    this.marketTimerList.forEach(timer => {
-      clearTimeout(timer)
+    Object.keys(this.marketController).forEach(region => {
+      const { marketTimer, abortController, quoteTimer } = this.marketController[region]
+      if (marketTimer) {
+        clearTimeout(marketTimer)
+      }
+      abortController.abort()
+      if (quoteTimer) {
+        clearTimeout(quoteTimer)
+      }
     })
+    this.marketController = {}
   }
 
   buyStock(tradeData: TradeRecord) {
@@ -463,7 +433,7 @@ class StockManager {
       return
     }
     const inputShares = await vscode.window.showInputBox({
-      prompt: `请输入${typeDisplay}}数量`,
+      prompt: `请输入${typeDisplay}数量`,
       validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
     })
     if (!inputShares) return

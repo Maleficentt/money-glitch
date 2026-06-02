@@ -366,8 +366,8 @@
           <el-input-number v-model="holdFormData.cost" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="数量">
-          <el-input-number v-model="holdFormData.shares" size="small" controls-position="right"
-            :min="0"></el-input-number>
+          <el-input-number v-model="holdFormData.shares" size="small" controls-position="right" :min="0"
+            :step="lotSize"></el-input-number>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -396,8 +396,8 @@
           <el-input-number v-model="tradeFormData.price" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="成交数量">
-          <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right"
-            :min="0"></el-input-number>
+          <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right" :min="0"
+            :step="lotSize"></el-input-number>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -420,17 +420,18 @@
         holdFormVisible: false,
         holdFormData: {
           symbol: '',
-          cost: '',
-          shares: ''
+          cost: null,
+          shares: null
         },
         tradeFormVisible: false,
         tradeFormData: {
           symbol: '',
           type: '',
-          price: '',
-          shares: ''
+          price: null,
+          shares: null
         },
         isSpecifyTrade: true,
+        lotSize: 100,
         suggestStockList: [],
         loading: false
       },
@@ -497,8 +498,8 @@
           this.isSpecifyTrade = false
           this.holdFormData = {
             symbol: '',
-            cost: '',
-            shares: ''
+            cost: null,
+            shares: null
           }
           this.holdFormVisible = true
         },
@@ -507,8 +508,8 @@
           this.tradeFormData = {
             symbol: '',
             type: '',
-            price: '',
-            shares: ''
+            price: null,
+            shares: null
           }
           this.tradeFormVisible = true
         },
@@ -519,6 +520,7 @@
             cost: row.position.cost,
             shares: row.position.shares
           }
+          this.lotSize = row.quote.lotSize || 100
           this.holdFormVisible = true
         },
         submitHoldForm() {
@@ -534,8 +536,9 @@
             symbol: row.symbol,
             type,
             price: row.quote.current || '',
-            shares: ''
+            shares: null
           }
+          this.lotSize = row.quote.lotSize || 100
           this.tradeFormVisible = true
         },
         submitTradeForm() {

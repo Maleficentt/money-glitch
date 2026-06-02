@@ -22,17 +22,16 @@ class StockGroupItem extends vscode.TreeItem {
 class StockItem extends vscode.TreeItem {
   constructor(
     public readonly stock: Stock,
-    isIndex: boolean,
     context: vscode.ExtensionContext
   ) {
-    const { name, quote, type } = stock
+    const { name, quote, type, region } = stock
     const { percent, current } = quote
     const percentFormat = percent.toFixed(2)
     const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
-    const label = ` ${isIndex ? '   ' : ''} ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(12, ' ')}    ${name}`
+    const label = ` ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(9, ' ')}    ${name}${region !== 'CN' ? `[${region}]` : ''}`
     super(label, vscode.TreeItemCollapsibleState.None)
 
-    this.contextValue = isIndex ? 'index' : 'stock'
+    this.contextValue = type === 12 ? 'index' : 'stock'
     this.tooltip = StockItem.formatTooltip(stock)
     this.iconPath = vscode.Uri.joinPath(
       context.extensionUri,
@@ -79,19 +78,16 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
   async getChildren(element?: StockTreeItem): Promise<StockTreeItem[]> {
     if (!element) {
-      return [...this.getIndexItems(), ...this.getGroupItems()]
+      return [...this.getGroupItems()]
     }
 
     if (element instanceof StockGroupItem) {
-      const indexSymbols = this.configManager.getIndexSymbols()
-      const stockList = this.stockList
-        .filter(stock => !indexSymbols.includes(stock.symbol))
       if (element.groupKey === 'ALL') {
-        return stockList.map((stock) => new StockItem(stock, false, this.context))
+        return this.stockList.map((stock) => new StockItem(stock, this.context))
       } else {
-        return stockList
+        return this.stockList
           .filter((stock) => stock.region === element.groupKey)
-          .map((stock) => new StockItem(stock, false, this.context))
+          .map((stock) => new StockItem(stock, this.context))
       }
     }
 
@@ -100,48 +96,32 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
   private getGroupItems(): StockGroupItem[] {
     const groups: StockGroupItem[] = []
-    const stocksByRegion = this.groupStocksByRegion()
 
-    let allCount = 0
-    for (const [region, stocks] of stocksByRegion) {
-      const count = stocks?.length || 0
-      if (count > 0) { // 只显示有股票的地区
-        groups.push(new StockGroupItem(
-          region,
-          count,
-          vscode.TreeItemCollapsibleState.Collapsed
-        ))
-        allCount += count
-      }
-    }
-
-    groups.sort()
+    // const stocksByRegion = this.groupStocksByRegion()
+    // for (const [region, stocks] of stocksByRegion) {
+    //   const count = stocks?.length || 0
+    //   if (count > 0) { // 只显示有股票的地区
+    //     groups.push(new StockGroupItem(
+    //       region,
+    //       count,
+    //       vscode.TreeItemCollapsibleState.Collapsed
+    //     ))
+    //   }
+    // }
+    // groups.sort()
 
     groups.unshift(new StockGroupItem(
       'ALL',
-      allCount,
+      this.stockList.length,
       vscode.TreeItemCollapsibleState.Expanded
     ))
 
     return groups
   }
 
-  private getIndexItems(): StockItem[] {
-    const indexSymbols = this.configManager.getIndexSymbols()
-    const indexItems: StockItem[] = []
-    this.stockList.forEach(stock => {
-      if (indexSymbols.includes(stock.symbol)) {
-        indexItems.push(new StockItem(stock, true, this.context))
-      }
-    })
-    return indexItems
-  }
-
   private groupStocksByRegion(): Map<string, Stock[]> {
-    const indexSymbols = this.configManager.getIndexSymbols()
     const groups = new Map<string, Stock[]>()
     for (const stock of this.stockList) {
-      if (indexSymbols.includes(stock.symbol)) continue
       const region = stock.region
       if (!groups.has(region)) {
         groups.set(region, [])
@@ -217,25 +197,14 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
   }
 
   swap(stockItem: StockItem, direction: number) {
-    const { stock, contextValue } = stockItem
+    const { stock } = stockItem
     const stockSymbols = this.configManager.getStockSymbols()
-    const indexSymbols = this.configManager.getIndexSymbols()
-    const swapIndexSymbols = stockSymbols.filter(item => indexSymbols.includes(item))
-    const swapOtherSymbols = stockSymbols.filter(item => !indexSymbols.includes(item))
-    let swapSymbols = [...stockSymbols]
-    const isIndex = contextValue === 'index'
-    if (isIndex) {
-      swapSymbols = swapIndexSymbols
-    } else {
-      swapSymbols = swapOtherSymbols
-    }
-    const index = swapSymbols.findIndex(symbol => symbol === stock.symbol)
-    if ((direction > 0 && index < swapSymbols.length - 1) || (direction < 0 && index > 0)) {
+    const index = stockSymbols.findIndex(symbol => symbol === stock.symbol)
+    if ((direction > 0 && index < stockSymbols.length - 1) || (direction < 0 && index > 0)) {
       const newIndex = index + direction
-      const newArr = [...swapSymbols];
+      const newArr = [...stockSymbols];
       [newArr[index], newArr[newIndex]] = [newArr[newIndex], newArr[index]]
-      const newStockSymbols = isIndex ? [...newArr, ...swapOtherSymbols] : [...swapIndexSymbols, ...newArr]
-      this.configManager.updateConfig('stockSymbols', newStockSymbols)
+      this.configManager.updateConfig('stockSymbols', newArr)
     }
   }
 

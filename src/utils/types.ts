@@ -12,6 +12,8 @@ export interface Quote {
   lastClose: number              // 昨日收盘价
   high: number                   // 当日最高价
   low: number                    // 当日最低价
+  limitUp: number                // 当日涨停价
+  limitDown: number              // 当日跌停价
   volume: number                 // 成交量（股）
   amount: number                 // 成交额（元）
   turnoverRate: number           // 换手率，表示股票的转手买卖频率（单位：%）

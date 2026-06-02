@@ -122,31 +122,52 @@ export function getStockData(symbolList: string[], config = {}): Promise<Stock[]
 }
 
 export function getRealtimeQuote(symbolList: string[], config = {}): Promise<Record<string, Quote>> {
+  const BATCH_SIZE = 50
+
+  // 将股票代码列表分成多个批次
+  const batches: string[][] = []
+  for (let i = 0; i < symbolList.length; i += BATCH_SIZE) {
+    batches.push(symbolList.slice(i, i + BATCH_SIZE))
+  }
+
   return getCookie().then(cookies => {
-    const symbol = symbolList.join(',')
-    return axios.get('https://stock.xueqiu.com/v5/stock/realtime/quotec.json', {
-      params: {
-        symbol: symbol,
-        _: new Date().getTime()
-      },
-      headers: {
-        Cookie: `xq_a_token=${cookies.xq_a_token}; u=${cookies.u}`,
-        'User-Agent': 'Mozilla/5.0'
-      },
-      ...config
-    }).then(res => {
-      const quoteMap: Record<string, Quote> = {}
-      res.data.data.forEach((item: Quote) => {
-        const quote = { ...item }
-        for (const key in quote) {
-          const newKey: string = underscoreToCamelCase(key)
-          quote[newKey] = quote[key]
-        }
-        quoteMap[item.symbol as string] = quote
+    // 创建所有批次的请求
+    const requests = batches.map(batch => {
+      const symbol = batch.join(',')
+      return axios.get('https://stock.xueqiu.com/v5/stock/realtime/quotec.json', {
+        params: {
+          symbol: symbol,
+          _: new Date().getTime()
+        },
+        headers: {
+          Cookie: `xq_a_token=${cookies.xq_a_token}; u=${cookies.u}`,
+          'User-Agent': 'Mozilla/5.0'
+        },
+        ...config
+      }).then(res => {
+        const quoteMap: Record<string, Quote> = {}
+        res.data.data.forEach((item: Quote) => {
+          const quote = { ...item }
+          for (const key in quote) {
+            const newKey: string = underscoreToCamelCase(key)
+            quote[newKey] = quote[key]
+          }
+          quoteMap[item.symbol as string] = quote
+        })
+        return quoteMap
+      }).catch(error => {
+        return Promise.reject(error)
+      })
+    })
+
+    return Promise.all(requests).then(resList => {
+      const quoteMap = {}
+      resList.forEach(item => {
+        Object.assign(quoteMap, item)
       })
       return quoteMap
-    }).catch(error => {
-      return Promise.reject(error)
+    }).catch(err => {
+      return Promise.reject(err)
     })
   })
 }
@@ -166,6 +187,26 @@ export function queryStock(code: string): Promise<[]> {
     }).then(res => {
       const stocks = res.data.stocks.filter((item: Record<string, unknown>) => item.exchange !== 'F') || []
       return stocks
+    }).catch(error => {
+      return Promise.reject(error)
+    })
+  })
+}
+
+export function getMinuteData (symbol: string, config = {}): Promise<[]> {
+  return getCookie().then(cookies => {
+    return axios.get('https://stock.xueqiu.com/v5/stock/chart/minute.json', {
+      params: {
+        symbol,
+        period: '1d'
+      },
+      headers: {
+        Cookie: `xq_a_token=${cookies.xq_a_token}; u=${cookies.u}`,
+        'User-Agent': 'Mozilla/5.0'
+      },
+      ...config
+    }).then(res => {
+      return res.data.data.items
     }).catch(error => {
       return Promise.reject(error)
     })

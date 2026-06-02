@@ -3,7 +3,7 @@ import TemplateEngine from './template-engine'
 import StockManager from './stock-manager'
 import ConfigManager from './config-manger'
 import { queryStock } from './data-service'
-import { Stock } from './types'
+import IndexManager from './index-manager'
 
 export default async function createSelectedWebview(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
@@ -30,53 +30,53 @@ export default async function createSelectedWebview(context: vscode.ExtensionCon
   panel.webview.html = html
 
   const stockManager = StockManager.getInstance()
-  const configManager = ConfigManager.getInstance()
-  const indexSymbols = configManager.getIndexSymbols()
-  const disposable = stockManager.onDidChangeStockList((stockList) => {
-    const indices: Stock[] = []
-    const stocks: Stock[] = []
-    stockList.forEach(item => {
-      if (indexSymbols.includes(item.symbol)) {
-        indices.push(item)
-      } else {
-        stocks.push(item)
-      }
-    })
+  const indexManager = IndexManager.getInstance()
+  indexManager.refresh()
+  const stockDisposable = stockManager.onDidChangeStockList((stocks) => {
     panel.webview.postMessage({
-      command: 'init',
+      command: 'refresh',
       data: {
-        indices,
         stocks
       }
     })
   })
-
-  context.subscriptions.push(disposable)
+  const indexDisposable = indexManager.onDidChangeStockList((indices) => {
+    panel.webview.postMessage({
+      command: 'refresh',
+      data: {
+        indices
+      }
+    })
+  })
+  const indexMinuteDisposable = indexManager.onDidChangeMinuteData((minuteData) => {
+    panel.webview.postMessage({
+      command: 'refreshMinute',
+      data: minuteData
+    })
+  })
+  context.subscriptions.push(stockDisposable, indexDisposable, indexMinuteDisposable)
 
   panel.onDidDispose(() => {
-    disposable.dispose()
+    stockDisposable.dispose()
+    indexDisposable.dispose()
+    indexMinuteDisposable.dispose()
   })
+
+  const configManager = ConfigManager.getInstance()
 
   panel.webview.onDidReceiveMessage(message => {
     switch (message.command) {
       case 'refresh':
         const stockList = stockManager.getStockList()
-        const indices: Stock[] = []
-        const stocks: Stock[] = []
-        stockList.forEach(item => {
-          if (indexSymbols.includes(item.symbol)) {
-            indices.push(item)
-          } else {
-            stocks.push(item)
-          }
-        })
+        const indexList = indexManager.getStockList()
         panel.webview.postMessage({
-          command: 'init',
+          command: 'refresh',
           data: {
-            indices,
-            stocks
+            stocks: stockList,
+            indices: indexList
           }
         })
+        indexManager.getMarketQuote()
         break
 
       case 'addStock':
@@ -103,6 +103,10 @@ export default async function createSelectedWebview(context: vscode.ExtensionCon
             data: stockList
           })
         })
+        break
+
+      case 'deleteStock':
+        configManager.removeStockSymbol(message.data)
         break
 
     }
