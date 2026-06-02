@@ -211,8 +211,6 @@ class StockManager {
         const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current } = item.quote
-          // let yestAmount = lastClose * shares // 昨日持仓市值
-          const totalProfit = new Decimal(current).sub(cost).mul(shares) // 总盈亏
           let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
           const isEtfStock = item.type === 13
           const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
@@ -245,13 +243,14 @@ class StockManager {
                 }
               }
             }
-            // yestAmount = lastClose * yestShares
             todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
           }
-          // 总盈亏 = (当前价 - 成本价) / 成本价
+          // 总盈亏
+          const totalProfit = new Decimal(current).sub(cost).mul(shares)
+          // 总盈亏百分比 = (当前价 - 成本价) / 成本价
           const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
           // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-          const todayProfitRate = todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2)
+          const todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
           stock.profit = {
             totalProfit: totalProfit.toNumber(),
             totalProfitRate: Number(totalProfitRate),
@@ -334,14 +333,14 @@ class StockManager {
     const isEtfStock = isETF(symbol as string)
     const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
-    const commission = Math.max(Number(commissionTemp) ? 0 : 5)
+    const commission = Math.max(Number(commissionTemp), 5)
     const oldCost = stockPosition.cost ?? 0
     let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).div(newShares).toFixed(4)
     if (oldCost === 0) {
       const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
-      const todayProfit = profit.todayProfit ?? 0
+      const totalProfit = profit.totalProfit ?? 0
       // （新买入总金额 + 买入手续费 - 卖出总收入）÷ 新买入股数
-      newCost = new Decimal(price).mul(shares).add(commission).sub(todayProfit).div(shares).toFixed(4)
+      newCost = new Decimal(price).mul(shares).add(commission).sub(totalProfit).div(shares).toFixed(4)
     }
     const stockData: Position = {
       cost: Number(newCost),
@@ -349,8 +348,6 @@ class StockManager {
       tradeRecords: tradeRecords
     }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.lastCost = oldCost
-      stockData.lastShares = oldShares
       stockData.tradeRecords = [{
         type,
         price,
@@ -401,8 +398,6 @@ class StockManager {
       tradeRecords: tradeRecords
     }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.lastCost = oldCost
-      stockData.lastShares = oldShares
       stockData.tradeRecords = [{
         type,
         price,
