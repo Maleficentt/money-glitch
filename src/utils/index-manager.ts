@@ -153,6 +153,15 @@ class IndexManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
+      } else if (status === 1) { // 未开盘
+        const timeList = marketOpenTime[region][0][0]
+        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
+        const countdown = startTime.diff(new Date()) + 1000
+        const timer = setTimeout(() => {
+          this.stockList = []
+          this.getStockData()
+        }, countdown)
+        this.marketController[region].marketTimer = timer
       } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘

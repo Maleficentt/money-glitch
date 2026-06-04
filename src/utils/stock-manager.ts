@@ -126,11 +126,13 @@ class StockManager {
       }
     })
     // 交易中立刻获取实时行情，计算什么时候收盘
+    // 未开盘算到当天开盘时间
     // 休盘中算到下一次开盘时间
     // 已收盘/休市算到第二天开市
+    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘
     Object.keys(this.marketController).forEach(region => {
       const { status } = this.marketController[region]
-      if ([3, 5].includes(status)) { // 交易中
+      if ([3, 5].includes(status)) { // 集合竞价、交易中
         this.getRealtimeQuote(region)
         let endTime: number[] = []
         const timeList = marketOpenTime[region]
@@ -147,6 +149,16 @@ class StockManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
+      } else if (status === 1) { // 未开盘
+        const timeList = marketOpenTime[region][0][0]
+        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
+        const countdown = startTime.diff(new Date()) + 1000
+        const timer = setTimeout(() => {
+          this.stockList = []
+          this.getStockData()
+        }, countdown)
+        this.marketController[region].marketTimer = timer
+        this.resetProfit()
       } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
@@ -207,55 +219,64 @@ class StockManager {
       const position = stockPosition[stock.symbol]
       if (position) {
         stock.position = position
-        const { cost, shares, tradeRecords } = position
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
-        if ((cost && shares) || todayTradeRecords.length) {
-          const { lastClose, current } = item.quote
-          let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
-          const isEtfStock = item.type === 13
-          const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
-          const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
-          const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
-          const transferRate = this.configManager.getConfig('transferRate', 0)
-          const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
-          let yestShares = shares
-          if (todayTradeRecords.length > 0) {
-            let restYestShares = shares
-            let tradeProfit = new Decimal(0)
-            for (const record of todayTradeRecords) {
-              const { price: tradePrice, shares: tradeShares } = record
-              if (!tradePrice || !tradeShares) return
-              const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
-              const commission = Math.max(Number(commissionTemp), 5)
-              if (record.type === 1) {
-                yestShares -= tradeShares
-                restYestShares -= tradeShares
-                const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
-                tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-              } else if (record.type === -1) {
-                yestShares += tradeShares
-                const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
-                tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-                if (!isEtfStock) {
-                  const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
-                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(transferRate).toFixed(2)
-                  tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
+        if (stock.quote.statusId === 1) {
+          stock.profit = {
+            totalProfit: 0,
+            totalProfitRate: 0,
+            todayProfit: 0,
+            todayProfitRate: 0
+          }
+        } else {
+          const { cost, shares, tradeRecords } = position
+          const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
+          if ((cost && shares) || todayTradeRecords.length) {
+            const { lastClose, current } = item.quote
+            let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
+            const isEtfStock = item.type === 13
+            const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
+            const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
+            const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
+            const transferRate = this.configManager.getConfig('transferRate', 0)
+            const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
+            let yestShares = shares
+            if (todayTradeRecords.length > 0) {
+              let restYestShares = shares
+              let tradeProfit = new Decimal(0)
+              for (const record of todayTradeRecords) {
+                const { price: tradePrice, shares: tradeShares } = record
+                if (!tradePrice || !tradeShares) return
+                const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
+                const commission = Math.max(Number(commissionTemp), 5)
+                if (record.type === 1) {
+                  yestShares -= tradeShares
+                  restYestShares -= tradeShares
+                  const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
+                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                } else if (record.type === -1) {
+                  yestShares += tradeShares
+                  const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
+                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                  if (!isEtfStock) {
+                    const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
+                    const transfer = new Decimal(tradePrice).mul(tradeShares).mul(transferRate).toFixed(2)
+                    tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
+                  }
                 }
               }
+              todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
             }
-            todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
-          }
-          // 总盈亏
-          const totalProfit = new Decimal(current).sub(cost).mul(shares)
-          // 总盈亏百分比 = (当前价 - 成本价) / 成本价
-          const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
-          // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-          const todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
-          stock.profit = {
-            totalProfit: totalProfit.toNumber(),
-            totalProfitRate: Number(totalProfitRate),
-            todayProfit: todayProfit.toNumber(),
-            todayProfitRate: Number(todayProfitRate)
+            // 总盈亏
+            const totalProfit = new Decimal(current).sub(cost).mul(shares)
+            // 总盈亏百分比 = (当前价 - 成本价) / 成本价
+            const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
+            // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
+            const todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
+            stock.profit = {
+              totalProfit: totalProfit.toNumber(),
+              totalProfitRate: Number(totalProfitRate),
+              todayProfit: todayProfit.toNumber(),
+              todayProfitRate: Number(todayProfitRate)
+            }
           }
         }
       }

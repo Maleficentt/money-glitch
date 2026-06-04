@@ -5,12 +5,9 @@ import { StatusBarManager } from './status-bar'
 import createPositionWebview from './utils/position-webview'
 import StockManager from './utils/stock-manager'
 import createSelectedWebview from './utils/selected-webview'
-import * as cron from 'node-cron'
-import { ScheduledTask } from 'node-cron'
 
 process.env.TZ = 'Asia/Shanghai'
 
-let task: ScheduledTask | null = null
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -18,13 +15,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   const stockManager = StockManager.getInstance()
   stockManager.refresh()
-
-  task = cron.schedule('0 9 * * *', async () => {
-    stockManager.resetProfit()
-  }, {
-    timezone: 'Asia/Shanghai'
-  })
-  task.start()
 
   const statusBarManager = StatusBarManager.getInstance()
 
@@ -103,6 +93,4 @@ export function deactivate() {
 
   const stockManager = StockManager.getInstance()
   stockManager.dispose()
-
-  task!.stop()
 }
