@@ -69,13 +69,13 @@ class StockManager {
       restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
     }
     if (restSymbols.length) {
-      getStockData(restSymbols, { signal: this.stockDataController.signal }).then(data => {
+      getStockData(restSymbols, { signal: this.stockDataController.signal }).then(async data => {
         if (isRefresh) {
           this.stockList = [...data]
         } else {
           this.stockList.push(...data)
         }
-        this.formatStockList()
+        await this.formatStockList()
         this.sort()
         this._onDidChangeStockList.fire(this.stockList)
         this.getMarketQuote()
@@ -188,13 +188,13 @@ class StockManager {
     const newAbortController = new AbortController()
     this.marketController[region].abortController = newAbortController
     if (symbols.length) {
-      getRealtimeQuote(symbols, { signal: newAbortController.signal }).then(quoteMap => {
+      getRealtimeQuote(symbols, { signal: newAbortController.signal }).then(async quoteMap => {
         this.stockList.forEach(item => {
           if (quoteMap[item.symbol]) {
             Object.assign(item.quote, quoteMap[item.symbol])
           }
         })
-        this.formatStockList()
+        await this.formatStockList()
         this._onDidChangeStockList.fire(this.stockList)
         this.marketController[region].quoteTimer = setTimeout(() => {
           this.getRealtimeQuote(region)
@@ -214,7 +214,7 @@ class StockManager {
     const stockPosition = this.configManager.getPosition()
     const stockList: Stock[] = []
     const exchangeRates = await getExchangeRates()
-    this.stockList.map(item => {
+    this.stockList.forEach(item => {
       const stock = { ...item }
       const position = stockPosition[stock.symbol]
       if (position) {
@@ -298,24 +298,6 @@ class StockManager {
 
   getStockList(): Stock[] {
     return this.stockList
-  }
-
-  resetProfit() {
-    const stockList: Stock[] = []
-    this.stockList.map(item => {
-      const stock = { ...item }
-      if (stock.profit) {
-        stock.profit = {
-          totalProfit: 0,
-          totalProfitRate: 0,
-          todayProfit: 0,
-          todayProfitRate: 0
-        }
-      }
-      stockList.push(stock)
-    })
-    this.stockList = stockList
-    this._onDidChangeStockList.fire(this.stockList)
   }
 
   refresh() {
