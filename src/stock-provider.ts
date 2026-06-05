@@ -21,27 +21,33 @@ class StockGroupItem extends vscode.TreeItem {
 
 class StockItem extends vscode.TreeItem {
   constructor(
-    public readonly stock: Stock,
-    context: vscode.ExtensionContext
+    public stock: Stock,
+    private readonly context: vscode.ExtensionContext
   ) {
-    const { name, quote, type, region } = stock
+    super('', vscode.TreeItemCollapsibleState.None)
+    this.id = stock.symbol
+    this.update(stock)
+  }
+
+  update(stock: Stock) {
+    this.stock = stock
+    const { name, quote, type, region } = this.stock
     const { percent, current } = quote
     const percentFormat = percent.toFixed(2)
     const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
-    const label = ` ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(9, ' ')}    ${name}${region !== 'CN' ? `[${region}]` : ''}`
-    super(label, vscode.TreeItemCollapsibleState.None)
+    this.label = ` ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(9, ' ')}    ${name}${region !== 'CN' ? `[${region}]` : ''}`
 
     this.contextValue = type === 12 ? 'index' : 'stock'
-    this.tooltip = StockItem.formatTooltip(stock)
+    this.tooltip = this.formatTooltip()
     this.iconPath = vscode.Uri.joinPath(
-      context.extensionUri,
+      this.context.extensionUri,
       'resources',
       percent >= 0 ? percent > 2 ? 'up_2.svg' : 'up_1.svg' : percent < -2 ? 'down_2.svg' : 'down_1.svg'
     )
   }
 
-  private static formatTooltip(stock: Stock): string {
-    const { name, symbol, quote } = stock
+  private formatTooltip(): string {
+    const { name, symbol, quote } = this.stock
     const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
     const quantity = Math.floor(volume / lotSize)
     const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
@@ -57,11 +63,10 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
   private configManager = ConfigManager.getInstance()
   private stockManager = StockManager.getInstance()
   private stockList: Stock[] = []
-  private readonly changeEmitter = new vscode.EventEmitter<
-    StockTreeItem | undefined | null | void
-  >()
-
+  private readonly changeEmitter = new vscode.EventEmitter<StockTreeItem | undefined | null | void>()
   readonly onDidChangeTreeData = this.changeEmitter.event
+
+  private stockCache = new Map<string, StockItem>()
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.context.subscriptions.push(this.changeEmitter)
@@ -83,7 +88,16 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
 
     if (element instanceof StockGroupItem) {
       if (element.groupKey === 'ALL') {
-        return this.stockList.map((stock) => new StockItem(stock, this.context))
+        return this.stockList.map((stock) => {
+          let item = this.stockCache.get(stock.symbol)
+          if (!item) {
+            item = new StockItem(stock, this.context)
+            this.stockCache.set(stock.symbol, item)
+          } else {
+            item.update(stock)
+          }
+          return item
+        })
       } else {
         return this.stockList
           .filter((stock) => stock.region === element.groupKey)
