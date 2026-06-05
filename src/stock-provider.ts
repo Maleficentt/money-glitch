@@ -35,7 +35,7 @@ class StockItem extends vscode.TreeItem {
     const { percent, current } = quote
     const percentFormat = percent.toFixed(2)
     const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
-    this.label = ` ${percent >= 0 ? `+${percentFormat}` : ` ${percentFormat}`}%   ${currentFormat.padEnd(9, ' ')}    ${name}${region !== 'CN' ? `[${region}]` : ''}`
+    this.label = ` ${percent >= 0 ? `+${percentFormat}` : `${percentFormat}`}%  ${currentFormat.padEnd(9, ' ')} ${name}${region !== 'CN' ? `[${region}]` : ''}`
 
     this.contextValue = type === 12 ? 'index' : 'stock'
     this.tooltip = this.formatTooltip()
