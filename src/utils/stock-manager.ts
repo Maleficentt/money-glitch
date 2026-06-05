@@ -158,7 +158,6 @@ class StockManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
-        this.resetProfit()
       } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
@@ -219,19 +218,18 @@ class StockManager {
       const position = stockPosition[stock.symbol]
       if (position) {
         stock.position = position
-        if (stock.quote.statusId === 1) {
-          stock.profit = {
-            totalProfit: 0,
-            totalProfitRate: 0,
-            todayProfit: 0,
-            todayProfitRate: 0
-          }
-        } else {
-          const { cost, shares, tradeRecords } = position
-          const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
-          if ((cost && shares) || todayTradeRecords.length) {
-            const { lastClose, current } = item.quote
-            let todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
+        const { cost, shares, tradeRecords } = position
+        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
+        if ((cost && shares) || todayTradeRecords.length) {
+          const { lastClose, current } = item.quote
+          // 总盈亏
+          const totalProfit = new Decimal(current).sub(cost).mul(shares)
+          // 总盈亏百分比 = (当前价 - 成本价) / 成本价
+          const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
+          let todayProfit = new Decimal(0)
+          let todayProfitRate
+          if (stock.quote.statusId !== 1) {
+            todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
             const isEtfStock = item.type === 13
             const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
             const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
@@ -265,20 +263,17 @@ class StockManager {
               }
               todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
             }
-            // 总盈亏
-            const totalProfit = new Decimal(current).sub(cost).mul(shares)
-            // 总盈亏百分比 = (当前价 - 成本价) / 成本价
-            const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
             // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-            const todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
-            stock.profit = {
-              totalProfit: totalProfit.toNumber(),
-              totalProfitRate: Number(totalProfitRate),
-              todayProfit: todayProfit.toNumber(),
-              todayProfitRate: Number(todayProfitRate)
-            }
+            todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
+          }
+          stock.profit = {
+            totalProfit: totalProfit.toNumber(),
+            totalProfitRate: Number(totalProfitRate),
+            todayProfit: todayProfit.toNumber(),
+            todayProfitRate: todayProfitRate ? Number(todayProfitRate) : 0
           }
         }
+
       }
       stockList.push(stock)
     })
