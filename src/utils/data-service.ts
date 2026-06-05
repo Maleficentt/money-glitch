@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { Quote, Stock, Exchange } from './types'
+import dayjs from 'dayjs'
 
 let cachedCookies: Record<string, string>
 
@@ -193,7 +194,7 @@ export function queryStock(code: string): Promise<[]> {
   })
 }
 
-export function getMinuteData (symbol: string, config = {}): Promise<[]> {
+export function getMinuteData(symbol: string, config = {}): Promise<[]> {
   return getCookie().then(cookies => {
     return axios.get('https://stock.xueqiu.com/v5/stock/chart/minute.json', {
       params: {
@@ -211,4 +212,32 @@ export function getMinuteData (symbol: string, config = {}): Promise<[]> {
       return Promise.reject(error)
     })
   })
+}
+
+interface ExchangeRate {
+  date: string
+  base: string
+  quote: string
+  rate: number
+}
+
+let exchangeRates: ExchangeRate[] = []
+// [{ date: '2026-06-01', base: 'CNY', quote: 'HKD', rate: 1.1585 }, { date: '2026-06-01', base: 'CNY', quote: 'USD', rate: 0.14773 }]
+
+export function getExchangeRates(): Promise<ExchangeRate[]> {
+  if (!exchangeRates.length || exchangeRates.some(item => !dayjs().isSame(item.date, 'd'))) {
+    return axios.get('https://api.frankfurter.dev/v2/rates', {
+      params: {
+        base: 'CNY',
+        quotes: 'USD,HKD'
+      }
+    }).then(res => {
+      exchangeRates = [...res.data]
+      return Promise.resolve(exchangeRates)
+    }).catch(error => {
+      return Promise.reject(error)
+    })
+  } else {
+    return Promise.resolve(exchangeRates)
+  }
 }

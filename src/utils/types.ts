@@ -21,10 +21,10 @@ export interface Quote {
   marketCapital: number          // 市值
   floatMarketCapital: number     // 流通市值
   lotSize: number                // 一手多少股
+  currency: string               // 币种
   status: string                 // 交易状态(中文)
   statusId: number               // 交易状态(数字 1：为开盘 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘)
-  isTrade: boolean               // 是否正在交易（不包含集合竞价， 港股一直为false）
-  timestamp: number                   // 行情数据的生成时间戳（毫秒）
+  timestamp: number              // 行情数据的生成时间戳（毫秒）
   [key: string]: unknown         // 允许任何字符串作为键名
 }
 

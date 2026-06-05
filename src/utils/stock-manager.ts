@@ -1,6 +1,6 @@
 import dayjs from 'dayjs'
 import ConfigManager from './config-manger'
-import { getRealtimeQuote, getStockData } from './data-service'
+import { getExchangeRates, getRealtimeQuote, getStockData } from './data-service'
 import { Position, Profit, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
 import isETF from './is-etf'
@@ -210,9 +210,10 @@ class StockManager {
     }
   }
 
-  private formatStockList() {
+  private async formatStockList() {
     const stockPosition = this.configManager.getPosition()
     const stockList: Stock[] = []
+    const exchangeRates = await getExchangeRates()
     this.stockList.map(item => {
       const stock = { ...item }
       const position = stockPosition[stock.symbol]
@@ -221,8 +222,12 @@ class StockManager {
         const { cost, shares, tradeRecords } = position
         const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
         if ((cost && shares) || todayTradeRecords.length) {
-          const { lastClose, current } = item.quote
+          const { lastClose, current, currency } = item.quote
           // 总盈亏
+          let exchangeRate = 1
+          if (currency !== 'CNY') {
+            exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
+          }
           const totalProfit = new Decimal(current).sub(cost).mul(shares)
           // 总盈亏百分比 = (当前价 - 成本价) / 成本价
           const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
@@ -267,9 +272,9 @@ class StockManager {
             todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
           }
           stock.profit = {
-            totalProfit: totalProfit.toNumber(),
+            totalProfit: Number(totalProfit.div(exchangeRate).toFixed(2)),
             totalProfitRate: Number(totalProfitRate),
-            todayProfit: todayProfit.toNumber(),
+            todayProfit: Number(todayProfit.div(exchangeRate).toFixed(2)),
             todayProfitRate: todayProfitRate ? Number(todayProfitRate) : 0
           }
         }
