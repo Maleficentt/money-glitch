@@ -21,11 +21,12 @@ class StockGroupItem extends vscode.TreeItem {
 
 class StockItem extends vscode.TreeItem {
   constructor(
+    stockId: string,
     public stock: Stock,
     private readonly context: vscode.ExtensionContext
   ) {
     super('', vscode.TreeItemCollapsibleState.None)
-    this.id = stock.symbol
+    this.id = stockId
     this.update(stock)
   }
 
@@ -91,8 +92,9 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
         return this.stockList.map((stock) => {
           let item = this.stockCache.get(stock.symbol)
           if (!item) {
-            item = new StockItem(stock, this.context)
-            this.stockCache.set(stock.symbol, item)
+            const stockId = `${element.groupKey}_${stock.symbol}`
+            item = new StockItem(stockId, stock, this.context)
+            this.stockCache.set(stockId, item)
           } else {
             item.update(stock)
           }
@@ -101,7 +103,17 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
       } else {
         return this.stockList
           .filter((stock) => stock.region === element.groupKey)
-          .map((stock) => new StockItem(stock, this.context))
+          .map((stock) => {
+            let item = this.stockCache.get(stock.symbol)
+            if (!item) {
+              const stockId = `${element.groupKey}_${stock.symbol}`
+              item = new StockItem(stockId, stock, this.context)
+              this.stockCache.set(stockId, item)
+            } else {
+              item.update(stock)
+            }
+            return item
+          })
       }
     }
 
@@ -111,18 +123,21 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
   private getGroupItems(): StockGroupItem[] {
     const groups: StockGroupItem[] = []
 
-    // const stocksByRegion = this.groupStocksByRegion()
-    // for (const [region, stocks] of stocksByRegion) {
-    //   const count = stocks?.length || 0
-    //   if (count > 0) { // 只显示有股票的地区
-    //     groups.push(new StockGroupItem(
-    //       region,
-    //       count,
-    //       vscode.TreeItemCollapsibleState.Collapsed
-    //     ))
-    //   }
-    // }
-    // groups.sort()
+    const groupByRegion = this.configManager.getConfig<boolean>('groupByRegion', true)
+    if (groupByRegion) {
+      const stocksByRegion = this.groupStocksByRegion()
+      for (const [region, stocks] of stocksByRegion) {
+        const count = stocks?.length || 0
+        if (count > 0) { // 只显示有股票的地区
+          groups.push(new StockGroupItem(
+            region,
+            count,
+            vscode.TreeItemCollapsibleState.Collapsed
+          ))
+        }
+      }
+      groups.sort()
+    }
 
     groups.unshift(new StockGroupItem(
       'ALL',
@@ -172,7 +187,7 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
       if (!selectedSymbol) {
         return
       }
-      await this.configManager.addStockSymbol(selectedSymbol)
+      this.configManager.addStockSymbol(selectedSymbol)
       quickPick.hide()
       quickPick.dispose()
     })

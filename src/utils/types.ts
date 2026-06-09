@@ -30,10 +30,10 @@ export interface Quote {
 
 // 交易记录
 export interface TradeRecord {
-  symbol?: string         // 股票代码
   type: number            // 交易方向（1：买入，-1：卖出）
   price: number           // 成交价格
   shares: number          // 成交数量
+  broker: string          // 劵商
   time?: string           // 成交时间
 }
 // 持仓
@@ -62,4 +62,16 @@ export interface Stock {
   quote: Quote            // 行情
   position?: Position     // 持仓
   profit?: Profit         // 盈亏
+}
+
+// 券商
+export interface Broker {
+  code: string                   // 代码
+  name: string                   // 名称
+  commissionRate: number         // 佣金
+  stampTaxRate: number           // 印花税费率
+  buyTransferRate: number        // 买入过户费率
+  sellTransferRate: number       // 卖出过户费率
+  stockMinCommission: number     // 普通股票最小佣金
+  etfMinCommission: number       // etf最小佣金
 }

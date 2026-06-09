@@ -212,25 +212,36 @@
           },
           "description": "stock position detail"
         },
-        "moneyGlitch.commonCommissionRate": {
-          "type": "number",
-          "default": 0.0002354,
-          "description": "股票佣金费率"
+        "moneyGlitch.groupByRegion": {
+          "type": "boolean",
+          "default": true,
+          "description": "enable group"
         },
-        "moneyGlitch.etfCommissionRate": {
-          "type": "number",
-          "default": 0.00025,
-          "description": "etf佣金费率"
-        },
-        "moneyGlitch.stampTaxRate": {
-          "type": "number",
-          "default": 0.0005,
-          "description": "印花税费率"
-        },
-        "moneyGlitch.transferRate": {
-          "type": "number",
-          "default": 0.00001,
-          "description": "过户费率"
+        "moneyGlitch.broker": {
+          "type": "object",
+          "default": {
+            "PingAn": {
+              "code": "PingAn",
+              "name": "平安证券",
+              "commissionRate": 0.0002354,
+              "stampTaxRate": 0.0005,
+              "buyTransferRate": 0.00001,
+              "sellTransferRate": 0.00001,
+              "stockMinCommission": 5,
+              "etfMinCommission": 5
+            },
+            "EastMoney": {
+              "code": "EastMoney",
+              "name": "东方财富",
+              "commissionRate": 0.00025,
+              "stampTaxRate": 0.0005,
+              "buyTransferRate": 0,
+              "sellTransferRate": 0.00001,
+              "stockMinCommission": 5,
+              "etfMinCommission": 0
+            }
+          },
+          "description": "Brokerage fees"
         }
       }
     }

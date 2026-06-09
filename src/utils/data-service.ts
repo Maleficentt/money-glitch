@@ -151,7 +151,7 @@ export function getRealtimeQuote(symbolList: string[], config = {}): Promise<Rec
           const quote = { ...item }
           for (const key in quote) {
             const newKey: string = underscoreToCamelCase(key)
-            quote[newKey] = quote[key]
+            quote[newKey] = quote[key] ?? 0
           }
           quoteMap[item.symbol as string] = quote
         })

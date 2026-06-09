@@ -66,14 +66,17 @@ export default async function createSelectedWebview(context: vscode.ExtensionCon
 
   panel.webview.onDidReceiveMessage(message => {
     switch (message.command) {
-      case 'refresh':
+      case 'init':
         const stockList = stockManager.getStockList()
         const indexList = indexManager.getStockList()
+        const brokerMap = configManager.getBrokerMap()
+        const brokerList = Object.keys(brokerMap).map(key => brokerMap[key])
         panel.webview.postMessage({
-          command: 'refresh',
+          command: 'init',
           data: {
             stocks: stockList,
-            indices: indexList
+            indices: indexList,
+            brokers: brokerList
           }
         })
         indexManager.getMarketQuote()
@@ -89,10 +92,11 @@ export default async function createSelectedWebview(context: vscode.ExtensionCon
         break
 
       case 'addStockTradeRecord':
-        if (message.data.type > 0) {
-          stockManager.buyStock(message.data)
+        const { stock, tradeRecord } = message.data
+        if (tradeRecord.type > 0) {
+          stockManager.buyStock(stock, tradeRecord)
         } else {
-          stockManager.sellStock(message.data)
+          stockManager.sellStock(stock, tradeRecord)
         }
         break
 

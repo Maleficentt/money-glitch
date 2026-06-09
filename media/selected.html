@@ -421,7 +421,8 @@
     <div class="tabs-wrapper">
       <div class="search-wrapper">
         <el-select v-model="searchInput" filterable remote reserve-keyword placeholder="添加自选股票"
-          :remote-method="getSuggestStockList" :loading="loading" size="small" @change="handleSelectedStockChange">
+          :remote-method="getSuggestStockList" :loading="loading" size="small"
+          @change="handleSelectedStockChange($event, 'SEARCH')">
           <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
             <span>{{ item.name }}</span>
             <span>{{ item.code }}</span>
@@ -614,7 +615,7 @@
       <el-form :model="holdFormData" label-width="80px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="holdFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
-            :remote-method="getSuggestStockList" :loading="loading" size="small">
+            :remote-method="getSuggestStockList" :loading="loading" size="small" @change="handleSelectedStockChange($event, 'HOLD')">
             <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
               <span>{{ item.name }}</span>
               <span>{{ item.code }}</span>
@@ -638,7 +639,8 @@
       <el-form :model="tradeFormData" label-width="120px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="tradeFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
-            :remote-method="getSuggestStockList" :loading="loading" size="small">
+            :remote-method="getSuggestStockList" :loading="loading" size="small"
+            @change="handleSelectedStockChange($event, 'TRADE')">
             <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
               <span>{{ item.name }}</span>
               <span>{{ item.code }}</span>
@@ -657,6 +659,11 @@
         <el-form-item label="成交数量">
           <el-input-number v-model="tradeFormData.shares" size="small" controls-position="right" :min="0"
             :step="lotSize"></el-input-number>
+        </el-form-item>
+        <el-form-item label="券商">
+          <el-select v-model="tradeFormData.broker" size="small" controls-position="right" clearable>
+            <el-option v-for="item in brokerList" :label="item.name" :value="item.code"></el-option>
+          </el-select>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -686,12 +693,14 @@
           symbol: '',
           type: '',
           price: null,
-          shares: null
+          shares: null,
+          broker: ''
         },
         isSpecifyTrade: true,
         lotSize: 100,
         suggestStockList: [],
-        loading: false
+        loading: false,
+        brokerList: []
       },
       filters: {
         formatNumber(val) {
@@ -741,13 +750,16 @@
         })
       },
       methods: {
-        init({ indices, stocks }) {
+        init({ indices, stocks, brokers }) {
           if (Array.isArray(indices)) {
             this.indexList = [...indices]
           }
           if (Array.isArray(stocks)) {
             this.stockList = [...stocks]
             this.holdList = stocks.filter(item => !!item.profit)
+          }
+          if (Array.isArray(brokers)) {
+            this.brokerList = [...brokers]
           }
         },
         initChart(minuteData) {
@@ -796,12 +808,35 @@
           }
           return className
         },
-        handleSelectedStockChange(symbol) {
-          if (symbol) {
-            this.vscode.postMessage({
-              command: 'addStock',
-              data: symbol
-            })
+        handleSelectedStockChange(symbol, action) {
+          if (action === 'SEARCH') {
+            if (symbol) {
+              this.vscode.postMessage({
+                command: 'addStock',
+                data: symbol
+              })
+            }
+          } else {
+            const target = this.suggestStockList.find(item => item.code === symbol)
+            if (action === 'TRADE') {
+              if (symbol) {
+                this.selectedStock = {
+                  symbol,
+                  exchange: target.exchange,
+                  type: target.type
+                }
+                this.tradeFormData.price = target.current || null
+              } else {
+                this.selectedStock = null
+                this.tradeFormData.price = null
+              }
+            } else if (action === 'HOLD') {
+              if (symbol) {
+                this.holdFormData.cost = target.current || null
+              } else {
+                this.holdFormData.cost = null
+              }
+            }
           }
         },
         handleRowClick(table, row) {
@@ -845,6 +880,7 @@
         },
         showTradeForm(row, type = '') {
           this.isSpecifyTrade = true
+          this.selectedStock = { ...row }
           this.tradeFormData = {
             symbol: row.symbol,
             type,
@@ -855,9 +891,15 @@
           this.tradeFormVisible = true
         },
         submitTradeForm() {
+          if (!this.selectedStock) {
+            return this.$message.warning('请选择股票')
+          }
           this.vscode.postMessage({
             command: 'addStockTradeRecord',
-            data: this.tradeFormData
+            data: {
+              stock: this.selectedStock,
+              tradeRecord: this.tradeFormData
+            }
           })
           this.tradeFormVisible = false
         },
@@ -872,7 +914,7 @@
             this.suggestStockList = []
           }
         },
-        removeSelected (row) {
+        removeSelected(row) {
           this.vscode.postMessage({
             command: 'deleteStock',
             data: row.symbol

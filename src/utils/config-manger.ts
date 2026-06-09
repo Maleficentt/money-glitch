@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { Position } from './types'
+import { Broker, Position } from './types'
 
 class ConfigManager {
   private static instance: ConfigManager
@@ -84,6 +84,10 @@ class ConfigManager {
 
   getIndexSymbols(): string[] {
     return this.getConfig<string[]>('indexSymbols', [])
+  }
+
+  getBrokerMap(): Record<string, Broker> {
+    return this.getConfig<Record<string, Broker>>('broker', {})
   }
 
 }

@@ -3,7 +3,6 @@ import ConfigManager from './config-manger'
 import { getExchangeRates, getRealtimeQuote, getStockData } from './data-service'
 import { Position, Profit, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
-import isETF from './is-etf'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
 
@@ -233,37 +232,36 @@ class StockManager {
           const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
           let todayProfit = new Decimal(0)
           let todayProfitRate
-          if (stock.quote.statusId !== 1) {
+          const timeList = marketOpenTime[stock.region][0][0]
+          const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
+          if (stock.quote.statusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
             todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
             const isEtfStock = item.type === 13
-            const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
-            const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
-            const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
-            const transferRate = this.configManager.getConfig('transferRate', 0)
-            const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
             let yestShares = shares
             if (todayTradeRecords.length > 0) {
               let restYestShares = shares
               let tradeProfit = new Decimal(0)
               for (const record of todayTradeRecords) {
-                const { price: tradePrice, shares: tradeShares } = record
+                const { price: tradePrice, shares: tradeShares, broker } = record
                 if (!tradePrice || !tradeShares) return
+                const brokerMap = this.configManager.getBrokerMap()
+                const brokerData = brokerMap[broker] ?? {}
+                const { commissionRate = 0, buyTransferRate = 0, sellTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
                 const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
-                const commission = Math.max(Number(commissionTemp), 5)
+                const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
                 if (record.type === 1) {
                   yestShares -= tradeShares
                   restYestShares -= tradeShares
                   const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
-                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(buyTransferRate).toFixed(2)
+                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission).sub(transfer)
                 } else if (record.type === -1) {
                   yestShares += tradeShares
                   const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
                   tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-                  if (!isEtfStock) {
-                    const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
-                    const transfer = new Decimal(tradePrice).mul(tradeShares).mul(transferRate).toFixed(2)
-                    tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
-                  }
+                  const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
+                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
+                  tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
                 }
               }
               todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
@@ -322,98 +320,81 @@ class StockManager {
     this.marketController = {}
   }
 
-  buyStock(tradeData: TradeRecord) {
-    const { symbol, type, price, shares } = tradeData
+  buyStock(stock: Stock, tradeData: TradeRecord) {
+    const { symbol, type: stockType } = stock
+    const { price, shares, broker } = tradeData
     const allPosition = this.configManager.getPosition()
-
     const stockPosition = allPosition[symbol as string] ?? {}
-
     const tradeRecords = stockPosition.tradeRecords ?? []
     const oldShares = stockPosition.shares || 0
     const newShares = oldShares + shares
-    const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
-    const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
-    const isEtfStock = isETF(symbol as string)
-    const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
+    const isEtfStock = stockType === 13
+    const brokerMap = this.configManager.getBrokerMap()
+    const brokerData = brokerMap[broker] ?? {}
+    const { commissionRate = 0, buyTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
-    const commission = Math.max(Number(commissionTemp), 5)
+    const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
+    const transfer = new Decimal(price).mul(shares).mul(buyTransferRate).toFixed(2)
     const oldCost = stockPosition.cost ?? 0
-    let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).div(newShares).toFixed(4)
+    let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).add(transfer).div(newShares).toFixed(4)
     if (oldCost === 0) {
       const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
       const totalProfit = profit.totalProfit ?? 0
       // （新买入总金额 + 买入手续费 - 卖出总收入）÷ 新买入股数
-      newCost = new Decimal(price).mul(shares).add(commission).sub(totalProfit).div(shares).toFixed(4)
+      newCost = new Decimal(price).mul(shares).add(commission).add(transfer).sub(totalProfit).div(shares).toFixed(4)
     }
     const stockData: Position = {
       cost: Number(newCost),
       shares: newShares,
       tradeRecords: tradeRecords
     }
+    const tradeRecord = {
+      ...tradeData,
+      time: dayjs().format('YYYY-MM-DD')
+    }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.tradeRecords = [{
-        type,
-        price,
-        shares,
-        time: dayjs().format('YYYY-MM-DD')
-      }]
+      stockData.tradeRecords = [tradeRecord]
     } else {
-      stockData.tradeRecords = tradeRecords.concat({
-        type,
-        price,
-        shares,
-        time: dayjs().format('YYYY-MM-DD')
-      })
+      stockData.tradeRecords = tradeRecords.concat(tradeRecord)
     }
     allPosition[symbol as string] = stockData
     this.configManager.updateConfig('position', allPosition)
     this.configManager.addStockSymbol(symbol as string)
   }
 
-  sellStock(tradeData: TradeRecord) {
-    const { symbol, type, price, shares } = tradeData
+  sellStock(stock: Stock, tradeData: TradeRecord) {
+    const { symbol, type: stockType } = stock
+    const { price, shares, broker } = tradeData
     const allPosition = this.configManager.getPosition()
-
     const stockPosition = allPosition[symbol as string] ?? {}
-
     const tradeRecords = stockPosition.tradeRecords ?? []
     const oldShares = stockPosition.shares || 0
     const newShares = oldShares - shares
     const oldCost = stockPosition.cost || 0
-    const isEtfStock = isETF(symbol as string)
-    const commonCommissionRate = this.configManager.getConfig('commonCommissionRate', 0)
-    const etfCommissionRate = this.configManager.getConfig('etfCommissionRate', 0)
-    const stampTaxRate = this.configManager.getConfig('stampTaxRate', 0)
-    const transferRate = this.configManager.getConfig('transferRate', 0)
-    const commissionRate = isEtfStock ? etfCommissionRate : commonCommissionRate
+    const isEtfStock = stockType === 13
+    const brokerMap = this.configManager.getBrokerMap()
+    const brokerData = brokerMap[broker] ?? {}
+    const { commissionRate = 0, stampTaxRate = 0, sellTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
-    const commission = Math.max(Number(commissionTemp), 5)
+    const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
     let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
-    if (!isEtfStock) {
-      const stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
-      const transfer = new Decimal(price).mul(shares).mul(transferRate).toFixed(2)
-      marketCapital = marketCapital.add(stampTax).add(transfer)
-    }
+    const stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
+    const transfer = new Decimal(price).mul(shares).mul(sellTransferRate).toFixed(2)
+    marketCapital = marketCapital.add(stampTax).add(transfer)
     const newCost = marketCapital.div(newShares).toFixed(4)
     const stockData: Position = {
       cost: newShares > 0 ? Number(newCost) : 0,
       shares: newShares,
       tradeRecords: tradeRecords
     }
+    const tradeRecord = {
+      ...tradeData,
+      time: dayjs().format('YYYY-MM-DD')
+    }
     if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.tradeRecords = [{
-        type,
-        price,
-        shares,
-        time: dayjs().format('YYYY-MM-DD')
-      }]
+      stockData.tradeRecords = [tradeRecord]
     } else {
-      stockData.tradeRecords = tradeRecords.concat({
-        type,
-        price,
-        shares,
-        time: dayjs().format('YYYY-MM-DD')
-      })
+      stockData.tradeRecords = tradeRecords.concat(tradeRecord)
     }
     allPosition[symbol as string] = stockData
     this.configManager.updateConfig('position', allPosition)
@@ -435,17 +416,41 @@ class StockManager {
       validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
     })
     if (!inputShares) return
-    const tradeRecord = {
-      symbol: stock.symbol,
-      type,
-      price: Number(inputPrice),
-      shares: Number(inputShares)
-    }
-    if (type > 0) {
-      this.buyStock(tradeRecord)
-    } else {
-      this.sellStock(tradeRecord)
-    }
+    const brokerMap = this.configManager.getBrokerMap()
+    const quickPick = vscode.window.createQuickPick()
+    quickPick.placeholder = '请选择券商'
+    const quickPickItems = Object.keys(brokerMap).map(key => {
+      const broker = brokerMap[key]
+      return {
+        label: broker.name,
+        description: broker.code
+      }
+    })
+    quickPickItems.push({
+      label: '无',
+      description: ''
+    })
+    quickPick.items = quickPickItems
+    let broker = ''
+    quickPick.onDidChangeSelection(selection => {
+      broker = selection[0]!.description ?? ''
+    })
+    quickPick.show()
+    quickPick.onDidAccept(async () => {
+      const tradeRecord = {
+        type,
+        price: Number(inputPrice),
+        shares: Number(inputShares),
+        broker
+      }
+      if (type > 0) {
+        this.buyStock(stock, tradeRecord)
+      } else {
+        this.sellStock(stock, tradeRecord)
+      }
+      quickPick.hide()
+      quickPick.dispose()
+    })
   }
 
   async setStockPosition(stock: Stock) {
