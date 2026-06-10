@@ -219,7 +219,7 @@ class StockManager {
       if (position) {
         stock.position = position
         const { cost, shares, tradeRecords } = position
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day'))
+        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (stock.quote.statusId === 1 && dayjs().diff(record.time, 'day') <= 1))
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current, currency } = item.quote
           // 总盈亏
