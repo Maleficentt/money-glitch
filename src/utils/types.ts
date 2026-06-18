@@ -42,6 +42,7 @@ export interface Position {
   cost: number                 // 成本（元）
   shares: number               // 股数
   tradeRecords?: TradeRecord[] // 交易记录
+  totalProfit?: number         // 清仓后总盈亏
 }
 
 // 盈利

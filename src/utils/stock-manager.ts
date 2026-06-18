@@ -342,8 +342,7 @@ class StockManager {
     const oldCost = stockPosition.cost ?? 0
     let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).add(transfer).div(newShares).toFixed(4)
     if (oldCost === 0) {
-      const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
-      const totalProfit = profit.totalProfit ?? 0
+      const totalProfit = stockPosition.totalProfit ?? 0
       // （新买入总金额 + 买入手续费 - 卖出总收入）÷ 新买入股数
       newCost = new Decimal(price).mul(shares).add(commission).add(transfer).sub(totalProfit).div(shares).toFixed(4)
     }
@@ -390,6 +389,10 @@ class StockManager {
       cost: newShares > 0 ? Number(newCost) : 0,
       shares: newShares,
       tradeRecords: tradeRecords
+    }
+    if (newShares === 0) {
+      const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
+      stockData.totalProfit = profit.totalProfit ?? 0
     }
     const tradeRecord = {
       ...tradeData,
