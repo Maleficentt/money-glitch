@@ -5,6 +5,10 @@ import { Position, Profit, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
+// import isSameOrAfter from 'dayjs/plugin/isSameOrAfter' // ES 2015
+
+dayjs.extend(isSameOrAfter)
 
 // const marketOpenTime: Record<string, string[][]> = {
 //   CN: [['09:15', '11:30'], ['13:00', '15:00']],
@@ -137,7 +141,7 @@ class StockManager {
         const timeList = marketOpenTime[region]
         for (let i = timeList.length - 1; i >= 0; i--) {
           const starTime = dayjs().set('hour', timeList[i][0][0]).set('minute', timeList[i][0][1] ?? 0)
-          if (dayjs().isAfter(starTime)) {
+          if (dayjs().isSameOrAfter(starTime)) {
             endTime = timeList[i][1]
             break
           }

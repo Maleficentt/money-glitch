@@ -471,7 +471,8 @@
             </el-table-column>
             <el-table-column prop="quote.percent" label="涨幅" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.percent.toFixed(2) }}%</span>
+                <span :class="getClass(row)" v-if="row.quote.percent">{{ row.quote.percent.toFixed(2) }}%</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.volume" label="成交量" min-width="110" sortable align="right">
@@ -496,7 +497,7 @@
             </el-table-column>
             <el-table-column prop="quote.amplitude" label="振幅" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span v-if="row.quote.turnoverRate">{{ row.quote.amplitude }}%</span>
+                <span v-if="row.quote.amplitude">{{ row.quote.amplitude }}%</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
@@ -559,7 +560,8 @@
             </el-table-column>
             <el-table-column prop="quote.percent" label="涨幅" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.percent.toFixed(2) }}%</span>
+                <span :class="getClass(row)" v-if="row.quote.percent">{{ row.quote.percent.toFixed(2) }}%</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.volume" label="成交量" min-width="100" sortable align="right">
@@ -584,7 +586,7 @@
             </el-table-column>
             <el-table-column prop="quote.amplitude" label="振幅" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span v-if="row.quote.turnoverRate">{{ row.quote.amplitude }}%</span>
+                <span v-if="row.quote.amplitude">{{ row.quote.amplitude }}%</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
@@ -615,7 +617,8 @@
       <el-form :model="holdFormData" label-width="80px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="holdFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
-            :remote-method="getSuggestStockList" :loading="loading" size="small" @change="handleSelectedStockChange($event, 'HOLD')">
+            :remote-method="getSuggestStockList" :loading="loading" size="small"
+            @change="handleSelectedStockChange($event, 'HOLD')">
             <el-option v-for="item in suggestStockList" :key="item.code" :label="item.name" :value="item.code">
               <span>{{ item.name }}</span>
               <span>{{ item.code }}</span>
