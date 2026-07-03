@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -236,7 +236,7 @@
               "commissionRate": 0.00025,
               "stampTaxRate": 0.0005,
               "buyTransferRate": 0,
-              "sellTransferRate": 0.00001,
+              "sellTransferRate": 0,
               "stockMinCommission": 5,
               "etfMinCommission": 0
             }

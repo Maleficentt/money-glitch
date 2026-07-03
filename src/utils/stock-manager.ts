@@ -1,7 +1,7 @@
 import dayjs from 'dayjs'
 import ConfigManager from './config-manger'
 import { getExchangeRates, getRealtimeQuote, getStockData } from './data-service'
-import { Position, Profit, Stock, TradeRecord } from './types'
+import { Position, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
@@ -222,7 +222,7 @@ class StockManager {
       const position = stockPosition[stock.symbol]
       if (position) {
         stock.position = position
-        const { cost, shares, tradeRecords } = position
+        const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
         const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (stock.quote.statusId === 1 && dayjs().diff(record.time, 'day') <= 1))
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current, currency } = item.quote
@@ -231,7 +231,7 @@ class StockManager {
           if (currency !== 'CNY') {
             exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
           }
-          const totalProfit = new Decimal(current).sub(cost).mul(shares)
+          const totalProfit = shares ? new Decimal(current).sub(cost).mul(shares) : new Decimal(pTotalProfit || 0)
           // 总盈亏百分比 = (当前价 - 成本价) / 成本价
           const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
           let todayProfit = new Decimal(0)
@@ -365,8 +365,8 @@ class StockManager {
     this.configManager.addStockSymbol(symbol as string)
   }
 
-  sellStock(stock: Stock, tradeData: TradeRecord) {
-    const { symbol, type: stockType } = stock
+  async sellStock(stock: Stock, tradeData: TradeRecord) {
+    const { symbol, type: stockType, quote } = stock
     const { price, shares, broker } = tradeData
     const allPosition = this.configManager.getPosition()
     const stockPosition = allPosition[symbol as string] ?? {}
@@ -380,19 +380,27 @@ class StockManager {
     const { commissionRate = 0, stampTaxRate = 0, sellTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
     const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-    let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
     const stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
     const transfer = new Decimal(price).mul(shares).mul(sellTransferRate).toFixed(2)
-    marketCapital = marketCapital.add(stampTax).add(transfer)
-    const newCost = marketCapital.div(newShares).toFixed(4)
+    let newCost = new Decimal(0)
+    if (newShares) {
+      let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
+      marketCapital = marketCapital.add(stampTax).add(transfer)
+      newCost = marketCapital.div(newShares)
+    }
     const stockData: Position = {
-      cost: newShares > 0 ? Number(newCost) : 0,
+      cost: Number(newCost.toFixed(4)),
       shares: newShares,
       tradeRecords: tradeRecords
     }
     if (newShares === 0) {
-      const profit: Profit = this.stockList.find(item => item.symbol === symbol)?.profit ?? {} as Profit
-      stockData.totalProfit = profit.totalProfit ?? 0
+      const { currency } = quote
+      let exchangeRate = 1
+      if (currency !== 'CNY') {
+        const exchangeRates = await getExchangeRates()
+        exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
+      }
+      stockData.totalProfit = Number(new Decimal(price).sub(oldCost).mul(oldShares).sub(commission).sub(stampTax).sub(transfer).div(exchangeRate).toFixed(2)) ?? 0
     }
     const tradeRecord = {
       ...tradeData,

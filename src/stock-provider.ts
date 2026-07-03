@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import ConfigManager from './utils/config-manger'
 import { queryStock } from './utils/data-service'
 import StockManager from './utils/stock-manager'
+import { isDefined } from './utils/common'
 
 class StockGroupItem extends vscode.TreeItem {
   constructor(
@@ -33,10 +34,11 @@ class StockItem extends vscode.TreeItem {
   update(stock: Stock) {
     this.stock = stock
     const { name, quote, type, region } = this.stock
-    const { percent, current } = quote
-    const percentFormat = percent.toFixed(2)
-    const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
-    this.label = ` ${percent >= 0 ? `+${percentFormat}` : `${percentFormat}`}%  ${currentFormat.padEnd(9, ' ')} ${name}${region !== 'CN' ? `[${region}]` : ''}`
+    const { percent, current, lastClose } = quote
+    const percentFormat = isDefined(percent) ? `${percent >= 0 ? `+${percent.toFixed(2)}` : `${percent.toFixed(2)}`}%` : '--'
+    const price = current || lastClose
+    const currentFormat = isDefined(price) ? type === 13 ? price.toFixed(3) : price.toFixed(2) : '--'
+    this.label = ` ${percentFormat.padEnd(7, ' ')}  ${currentFormat.padEnd(9, ' ')} ${name}${region !== 'CN' ? `[${region}]` : ''}`
 
     this.contextValue = type === 12 ? 'index' : 'stock'
     this.tooltip = this.formatTooltip()
@@ -49,11 +51,14 @@ class StockItem extends vscode.TreeItem {
 
   private formatTooltip(): string {
     const { name, symbol, quote } = this.stock
-    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
-    const quantity = Math.floor(volume / lotSize)
-    const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
-    const formatAmount = amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万`
-    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
+    const { current, chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
+    let formatVolume = '-'
+    if (isDefined(volume)) {
+      const quantity = Math.floor(volume / lotSize)
+      formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
+    }
+    const formatAmount = isDefined(amount) ? amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万` : '--'
+    return `${name} ${symbol}\n最新：${current}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
   }
 }
 

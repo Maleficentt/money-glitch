@@ -404,7 +404,7 @@
       <div v-for="item in indexList" :key="item.symbol"
         :class="['index-item', { profit: item.quote.current > item.quote.lastClose, loss: item.quote.current < item.quote.lastClose }]">
         <div class="index-row index-row-1">
-          <span class="index-current">{{ item.quote.current.toFixed(2) }}</span>
+          <span class="index-current">{{ item.quote.current ? item.quote.current.toFixed(2) : '--' }}</span>
           <div class="chart-wrapper">
             <svg ref="chart" class="chart" width="120" height="48" viewBox="0 0 242 48" preserveAspectRatio="none">
               <path d="" class="prev-close-line"></path>
@@ -414,7 +414,7 @@
         </div>
         <div class="index-row">
           <span class="index-name">{{ item.name }}</span>
-          <span class="index-percent">{{ item.quote.percent > 0 ? '+' : '' }}{{ item.quote.percent.toFixed(2) }}%</span>
+          <span class="index-percent" v-if="item.quote.percent">{{ item.quote.percent > 0 ? '+' : '' }}{{ item.quote.percent.toFixed(2) }}%</span>
         </div>
       </div>
     </div>

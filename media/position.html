@@ -310,7 +310,7 @@
           <template slot-scope="{ row }">
             <div class="table-cell">
               <span>{{ row.name }}</span>
-              <span>{{ row.marketValue }}</span>
+              <span>{{ row.marketValue | formatNumber }}</span>
             </div>
           </template>
         </el-table-column>
@@ -318,7 +318,7 @@
         <el-table-column prop="price" label="现价 | 成本价" min-width="120">
           <template slot-scope="{ row }">
             <div class="table-cell">
-              <span>{{ row.quote.current.toFixed(3) }}</span>
+              <span>{{ row.quote.current ? row.quote.current.toFixed(3) : '--' }}</span>
               <span>{{ row.position.cost }}</span>
             </div>
           </template>
@@ -326,7 +326,7 @@
         <el-table-column prop="profit.totalProfit" label="总盈亏" min-width="100" sortable>
           <template slot-scope="{ row }">
             <div :class="['table-cell', { loss: row.profit.totalProfit < 0, profit: row.profit.totalProfit > 0 }]">
-              <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfit }}</span>
+              <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfit | formatNumber }}</span>
               <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfitRate }}%</span>
             </div>
           </template>
@@ -334,7 +334,7 @@
         <el-table-column prop="profit.todayProfit" label="当日盈亏" min-width="100" sortable>
           <template slot-scope="{ row }">
             <div :class="['table-cell', {loss: row.profit.todayProfit<0, profit: row.profit.todayProfit>0}]">
-              <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfit }}</span>
+              <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfit | formatNumber }}</span>
               <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfitRate }}%</span>
             </div>
           </template>

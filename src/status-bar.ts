@@ -5,6 +5,7 @@ import { Position, Stock } from './utils/types'
 import StockManager from './utils/stock-manager'
 import Decimal from 'decimal.js'
 import dayjs from 'dayjs'
+import { isDefined } from './utils/common'
 
 export class StatusBarManager {
   private static instance: StatusBarManager
@@ -96,10 +97,11 @@ export class StatusBarManager {
 
   private formatStatusBarText(stock: Stock): string {
     const { name, quote, type } = stock
-    const { current, percent } = quote
-    const currentFormat = type === 13 ? current.toFixed(3) : current.toFixed(2)
-    const percentFormat = percent.toFixed(2)
-    return `${this.shortenName(name)} ${currentFormat} ${percentFormat}%`
+    const { current, lastClose, percent } = quote
+    const price = current || lastClose
+    const currentFormat = isDefined(price) ? (type === 13 ? price.toFixed(3) : price.toFixed(2)) : '--'
+    const percentFormat = isDefined(percent) ? `${percent.toFixed(2)}%` : '--'
+    return `${this.shortenName(name)} ${currentFormat} ${percentFormat}`
   }
 
   private shortenName(name: string): string {
@@ -126,11 +128,14 @@ export class StatusBarManager {
 
   private formatTooltip(stock: Stock): string {
     const { name, symbol, quote } = stock
-    const { chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
-    const quantity = Math.floor(volume / lotSize)
-    const formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
-    const formatAmount = amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万`
-    return `${name} ${symbol}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
+    const { current, chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
+    let formatVolume = '-'
+    if (isDefined(volume)) {
+      const quantity = Math.floor(volume / lotSize)
+      formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
+    }
+    const formatAmount = isDefined(amount) ? amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万` : '-'
+    return `${name} ${symbol}\n最新：${current}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
   }
 
   async addStockToStatusBar(stock: Stock): Promise<boolean> {
@@ -169,10 +174,13 @@ export class StatusBarManager {
       const { profit } = item
       if (!profit) return
       const { shares } = item.position as Position
-      const { current } = item.quote
-      totalMarketValue = totalMarketValue.add(new Decimal(current).mul(shares))
-      totalProfit = totalProfit.add(profit.totalProfit)
-      todayProfit = todayProfit.add(profit.todayProfit)
+      const { current, lastClose } = item.quote
+      const price = current || lastClose
+      if (price) {
+        totalMarketValue = totalMarketValue.add(new Decimal(current).mul(shares))
+        totalProfit = totalProfit.add(profit.totalProfit)
+        todayProfit = todayProfit.add(profit.todayProfit)
+      }
     })
     const totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
     const todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
