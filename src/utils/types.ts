@@ -22,8 +22,8 @@ export interface Quote {
   floatMarketCapital: number     // 流通市值
   lotSize: number                // 一手多少股
   currency: string               // 币种
-  status: string                 // 交易状态(中文)
-  statusId: number               // 交易状态(数字 1：为开盘 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘)
+  marketStatus: string                 // 交易状态(中文)
+  marketStatusId: number               // 交易状态(数字 1：未开盘 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘 8：休市)
   timestamp: number              // 行情数据的生成时间戳（毫秒）
   [key: string]: unknown         // 允许任何字符串作为键名
 }
@@ -65,14 +65,19 @@ export interface Stock {
   profit?: Profit         // 盈亏
 }
 
+// 过户费率
+export type TransferRate = {
+  value: number
+  isBilateral: boolean
+}  & Record<Exclude<string, 'value' | 'isBilateral'>, number>
+
 // 券商
 export interface Broker {
   code: string                   // 代码
   name: string                   // 名称
   commissionRate: number         // 佣金
   stampTaxRate: number           // 印花税费率
-  buyTransferRate: number        // 买入过户费率
-  sellTransferRate: number       // 卖出过户费率
+  transferRate: TransferRate     // 买入过户费率
   stockMinCommission: number     // 普通股票最小佣金
   etfMinCommission: number       // etf最小佣金
 }

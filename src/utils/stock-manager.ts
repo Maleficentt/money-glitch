@@ -116,11 +116,11 @@ class StockManager {
     this.marketController = {}
     this.stockList.forEach(item => {
       if (this.marketController[item.region]) {
-        this.marketController[item.region].status = item.quote.statusId
+        this.marketController[item.region].status = item.quote.marketStatusId
         this.marketController[item.region].symbols.push(item.symbol)
       } else {
         this.marketController[item.region] = {
-          status: item.quote.statusId,
+          status: item.quote.marketStatusId,
           symbols: [item.symbol],
           abortController: new AbortController(),
           marketTimer: null,
@@ -132,7 +132,7 @@ class StockManager {
     // 未开盘算到当天开盘时间
     // 休盘中算到下一次开盘时间
     // 已收盘/休市算到第二天开市
-    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘
+    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘 8：休盘
     Object.keys(this.marketController).forEach(region => {
       const { status } = this.marketController[region]
       if ([3, 5].includes(status)) { // 集合竞价、交易中
@@ -161,7 +161,7 @@ class StockManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
-      } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
+      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
           timeList = marketOpenTime[region][1][0]
@@ -170,7 +170,7 @@ class StockManager {
         let countdown = 0
         if (status === 4) { // 休盘
           countdown = startTime.diff(new Date()) + 1000
-        } else if (status === 7) { // 收盘
+        } else if ([7, 8].includes(status)) { // 收盘
           countdown = startTime.add(1, 'd').diff(new Date()) + 1000
         }
         const timer = setTimeout(() => {
@@ -250,7 +250,10 @@ class StockManager {
                 if (!tradePrice || !tradeShares) return
                 const brokerMap = this.configManager.getBrokerMap()
                 const brokerData = brokerMap[broker] ?? {}
-                const { commissionRate = 0, buyTransferRate = 0, sellTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
+                const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
+                const { value, isBilateral } = transferRate
+                const buyTransferRate = isBilateral ? (transferRate[stock.exchange.toUpperCase()] ?? value) : 0
+                const sellTransferRate = transferRate[stock.exchange.toUpperCase()] ?? transferRate.value
                 const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
                 const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
                 if (record.type === 1) {
@@ -263,8 +266,12 @@ class StockManager {
                   yestShares += tradeShares
                   const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
                   tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-                  const stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
-                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
+                  let stampTax = '0'
+                  let transfer = '0'
+                  if (!isEtfStock) {
+                    stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
+                    transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
+                  }
                   tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
                 }
               }
@@ -325,7 +332,7 @@ class StockManager {
   }
 
   buyStock(stock: Stock, tradeData: TradeRecord) {
-    const { symbol, type: stockType } = stock
+    const { symbol, type: stockType, exchange } = stock
     const { price, shares, broker } = tradeData
     const allPosition = this.configManager.getPosition()
     const stockPosition = allPosition[symbol as string] ?? {}
@@ -335,7 +342,9 @@ class StockManager {
     const isEtfStock = stockType === 13
     const brokerMap = this.configManager.getBrokerMap()
     const brokerData = brokerMap[broker] ?? {}
-    const { commissionRate = 0, buyTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
+    const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
+    const { value, isBilateral } = transferRate
+    const buyTransferRate = isBilateral ? (transferRate[exchange.toUpperCase()] ?? value) : 0
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
     const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
     const transfer = new Decimal(price).mul(shares).mul(buyTransferRate).toFixed(2)
@@ -366,7 +375,7 @@ class StockManager {
   }
 
   async sellStock(stock: Stock, tradeData: TradeRecord) {
-    const { symbol, type: stockType, quote } = stock
+    const { symbol, type: stockType, exchange, quote } = stock
     const { price, shares, broker } = tradeData
     const allPosition = this.configManager.getPosition()
     const stockPosition = allPosition[symbol as string] ?? {}
@@ -377,11 +386,16 @@ class StockManager {
     const isEtfStock = stockType === 13
     const brokerMap = this.configManager.getBrokerMap()
     const brokerData = brokerMap[broker] ?? {}
-    const { commissionRate = 0, stampTaxRate = 0, sellTransferRate = 0, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
+    const { commissionRate = 0, stampTaxRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
+    const sellTransferRate = transferRate[exchange.toUpperCase()] ?? transferRate.value
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
     const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-    const stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
-    const transfer = new Decimal(price).mul(shares).mul(sellTransferRate).toFixed(2)
+    let stampTax = '0'
+    let transfer = '0'
+    if (!isEtfStock) {
+      stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
+      transfer = new Decimal(price).mul(shares).mul(sellTransferRate).toFixed(2)
+    }
     let newCost = new Decimal(0)
     if (newShares) {
       let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
@@ -479,7 +493,7 @@ class StockManager {
     }
     const inputShares = await vscode.window.showInputBox({
       prompt: `请输入持仓数量`,
-      validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
+      validateInput: (value) => (Number(value) >= 0 ? undefined : '请输入大于或等于 0 的数量')
     })
     if (!inputShares) return
     const position = {

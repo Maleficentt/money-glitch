@@ -92,8 +92,8 @@ export function getStockData(symbolList: string[], config = {}): Promise<Stock[]
               const newKey: string = underscoreToCamelCase(key)
               quote[newKey] = quote[key]
             }
-            quote.status = status as string
-            quote.statusId = status_id as number
+            quote.marketStatus = status as string
+            quote.marketStatusId = status_id as number
             const { exchange, symbol, code, name, type } = quote as Quote
             const stock: Stock = {
               region: region as string,

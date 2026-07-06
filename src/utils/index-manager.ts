@@ -116,11 +116,11 @@ class IndexManager {
     this.marketController = {}
     this.stockList.forEach(item => {
       if (this.marketController[item.region]) {
-        this.marketController[item.region].status = item.quote.statusId
+        this.marketController[item.region].status = item.quote.marketStatusId
         this.marketController[item.region].symbols.push(item.symbol)
       } else {
         this.marketController[item.region] = {
-          status: item.quote.statusId,
+          status: item.quote.marketStatusId,
           symbols: [item.symbol],
           quoteAbortController: new AbortController(),
           marketTimer: null,
@@ -162,7 +162,7 @@ class IndexManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
-      } else if ([4, 7].includes(status)) { // 休盘 / 收盘 TODO: 休市
+      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 TODO: 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
           timeList = marketOpenTime[region][1][0]
@@ -171,7 +171,7 @@ class IndexManager {
         let countdown = 0
         if (status === 4) { // 休盘
           countdown = startTime.diff(new Date()) + 1000
-        } else if (status === 7) { // 收盘
+        } else if ([7, 8].includes(status)) { // 收盘
           countdown = startTime.add(1, 'd').diff(new Date()) + 1000
         }
         this.getMinuteData(region, true)

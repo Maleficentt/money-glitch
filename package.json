@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -225,8 +225,10 @@
               "name": "平安证券",
               "commissionRate": 0.0002354,
               "stampTaxRate": 0.0005,
-              "buyTransferRate": 0.00001,
-              "sellTransferRate": 0.00001,
+              "transferRate": {
+                "value": 0.00001,
+                "isBilateral": true
+              },
               "stockMinCommission": 5,
               "etfMinCommission": 5
             },
@@ -235,8 +237,11 @@
               "name": "东方财富",
               "commissionRate": 0.00025,
               "stampTaxRate": 0.0005,
-              "buyTransferRate": 0,
-              "sellTransferRate": 0,
+              "transferRate": {
+                "value": 0.00001,
+                "isBilateral": false,
+                "SZ": 0
+              },
               "stockMinCommission": 5,
               "etfMinCommission": 0
             }

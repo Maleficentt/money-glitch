@@ -128,14 +128,14 @@ export class StatusBarManager {
 
   private formatTooltip(stock: Stock): string {
     const { name, symbol, quote } = stock
-    const { current, chg, percent, high, low, open, lastClose, volume, amount, lotSize, status, timestamp } = quote
+    const { current, chg, percent, high, low, open, lastClose, volume, amount, lotSize, marketStatus, timestamp } = quote
     let formatVolume = '-'
     if (isDefined(volume)) {
       const quantity = Math.floor(volume / lotSize)
       formatVolume = quantity > 100000 ? `${(quantity / 10000).toFixed(2)}万手` : `${quantity}手`
     }
     const formatAmount = isDefined(amount) ? amount > 10000000000000 ? `${(amount / 1000000000000).toFixed(2)}万亿` : amount > 1000000000 ? `${(amount / 100000000).toFixed(2)}亿` : `${(amount / 10000).toFixed(2)}万` : '-'
-    return `${name} ${symbol}\n最新：${current}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${status} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
+    return `${name} ${symbol}\n最新：${current}\n涨跌：${chg}   涨幅：${percent}%\n最高：${high}   最低：${low}\n今开：${open}   昨收：${lastClose}\n成交量：${formatVolume}  成交额：${formatAmount}\n${marketStatus} ${dayjs(timestamp).format('MM-DD HH:mm:ss')}`
   }
 
   async addStockToStatusBar(stock: Stock): Promise<boolean> {
