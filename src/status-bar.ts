@@ -182,8 +182,12 @@ export class StatusBarManager {
         todayProfit = todayProfit.add(profit.todayProfit)
       }
     })
-    const totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
-    const todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
+    let totalProfitRate = '0'
+    let todayProfitRate = '0'
+    if (totalMarketValue.toNumber() > 0) {
+      totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
+      todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
+    }
     this.profitBarItem.text = `💰 ${totalProfit} | ${todayProfit}`
     this.profitBarItem.tooltip = `总市值: ${totalMarketValue} 持仓收益: ${totalProfit} (${totalProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
       '-----------------------------\r\n' +

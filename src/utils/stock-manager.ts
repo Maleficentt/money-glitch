@@ -132,7 +132,7 @@ class StockManager {
     // 未开盘算到当天开盘时间
     // 休盘中算到下一次开盘时间
     // 已收盘/休市算到第二天开市
-    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘 8：休盘
+    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘 8：休市
     Object.keys(this.marketController).forEach(region => {
       const { status } = this.marketController[region]
       if ([3, 5].includes(status)) { // 集合竞价、交易中
@@ -161,7 +161,7 @@ class StockManager {
           this.getStockData()
         }, countdown)
         this.marketController[region].marketTimer = timer
-      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 TODO: 休市
+      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 / 休市
         let timeList = marketOpenTime[region][0][0]
         if (status === 4) { // 休盘
           timeList = marketOpenTime[region][1][0]
@@ -223,7 +223,7 @@ class StockManager {
       if (position) {
         stock.position = position
         const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (stock.quote.statusId === 1 && dayjs().diff(record.time, 'day') <= 1))
+        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (stock.quote.marketStatusId === 1 && dayjs().diff(record.time, 'day') <= 1))
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current, currency } = item.quote
           // 总盈亏
@@ -238,7 +238,7 @@ class StockManager {
           let todayProfitRate
           const timeList = marketOpenTime[stock.region][0][0]
           const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-          if (stock.quote.statusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
+          if (stock.quote.marketStatusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
             todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
             const isEtfStock = item.type === 13
             let yestShares = shares
