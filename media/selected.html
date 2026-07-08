@@ -414,7 +414,8 @@
         </div>
         <div class="index-row">
           <span class="index-name">{{ item.name }}</span>
-          <span class="index-percent" v-if="item.quote.percent">{{ item.quote.percent > 0 ? '+' : '' }}{{ item.quote.percent.toFixed(2) }}%</span>
+          <span class="index-percent" v-if="item.quote.percent">{{ item.quote.percent > 0 ? '+' : '' }}{{
+            item.quote.percent.toFixed(2) }}%</span>
         </div>
       </div>
     </div>
@@ -461,12 +462,14 @@
             </el-table-column>
             <el-table-column prop="quote.current" label="最新" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.current }}</span>
+                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.current }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.chg" label="涨跌" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.chg }}</span>
+                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.chg }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.percent" label="涨幅" min-width="100" sortable align="right">
@@ -477,22 +480,26 @@
             </el-table-column>
             <el-table-column prop="quote.volume" label="成交量" min-width="110" sortable align="right">
               <template slot-scope="{ row }">
-                <span>{{ row.quote.volume | formatQuantity(row.quote.lotSize) }}</span>
+                <span v-if="row.quote.volume">{{ row.quote.volume | formatQuantity(row.quote.lotSize) }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.amount" label="成交额" min-width="110" sortable align="right">
               <template slot-scope="{ row }">
-                <span>{{ row.quote.amount | formatAmount }}</span>
+                <span v-if="row.quote.amount">{{ row.quote.amount | formatAmount }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.high" label="最高" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'high')">{{ row.quote.high }}</span>
+                <span :class="getClass(row, 'high')" v-if="row.quote.high">{{ row.quote.high }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.low" label="最低" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'low')">{{ row.quote.low }}</span>
+                <span :class="getClass(row, 'low')" v-if="row.quote.row">{{ row.quote.low }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.amplitude" label="振幅" min-width="100" sortable align="right">
@@ -550,12 +557,14 @@
             </el-table-column>
             <el-table-column prop="quote.current" label="最新" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.current }}</span>
+                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.current }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.chg" label="涨跌" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)">{{ row.quote.chg }}</span>
+                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.chg }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.percent" label="涨幅" min-width="100" sortable align="right">
@@ -566,22 +575,26 @@
             </el-table-column>
             <el-table-column prop="quote.volume" label="成交量" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span>{{ row.quote.volume | formatQuantity(row.quote.lotSize) }}</span>
+                <span v-if="row.quote.volume">{{ row.quote.volume | formatQuantity(row.quote.lotSize) }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.amount" label="成交额" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span>{{ row.quote.amount | formatAmount }}</span>
+                <span v-if="row.quote.amount">{{ row.quote.amount | formatAmount }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.high" label="最高" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'high')">{{ row.quote.high }}</span>
+                <span :class="getClass(row, 'high')" v-if="row.quote.high">{{ row.quote.high }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.low" label="最低" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'low')">{{ row.quote.low }}</span>
+                <span :class="getClass(row, 'low')" v-if="row.quote.low">{{ row.quote.low }}</span>
+                <span v-else>--</span>
               </template>
             </el-table-column>
             <el-table-column prop="quote.amplitude" label="振幅" min-width="100" sortable align="right">

@@ -6,7 +6,6 @@ import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
-// import isSameOrAfter from 'dayjs/plugin/isSameOrAfter' // ES 2015
 
 dayjs.extend(isSameOrAfter)
 
@@ -223,62 +222,74 @@ class StockManager {
       if (position) {
         stock.position = position
         const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (stock.quote.marketStatusId === 1 && dayjs().diff(record.time, 'day') <= 1))
+        const { marketStatusId } = item.quote
+        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (marketStatusId === 1 && dayjs().diff(record.time, 'day') <= 1))
         if ((cost && shares) || todayTradeRecords.length) {
-          const { lastClose, current, currency } = item.quote
+          const { lastClose, current, currency, status } = item.quote
           // 总盈亏
           let exchangeRate = 1
-          if (currency !== 'CNY') {
+          if (currency && currency !== 'CNY') {
             exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
           }
-          const totalProfit = shares ? new Decimal(current).sub(cost).mul(shares) : new Decimal(pTotalProfit || 0)
+          const totalProfit = status !== 0
+            ? shares
+              ? new Decimal(current).sub(cost).mul(shares)
+              : new Decimal(pTotalProfit || 0)
+            : new Decimal(0)
           // 总盈亏百分比 = (当前价 - 成本价) / 成本价
-          const totalProfitRate = cost ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2) : 0
+          const totalProfitRate = status !== 0 && cost
+            ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2)
+            : '0'
           let todayProfit = new Decimal(0)
-          let todayProfitRate
-          const timeList = marketOpenTime[stock.region][0][0]
-          const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-          if (stock.quote.marketStatusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
-            todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
-            const isEtfStock = item.type === 13
-            let yestShares = shares
-            if (todayTradeRecords.length > 0) {
-              let restYestShares = shares
-              let tradeProfit = new Decimal(0)
-              for (const record of todayTradeRecords) {
-                const { price: tradePrice, shares: tradeShares, broker } = record
-                if (!tradePrice || !tradeShares) return
-                const brokerMap = this.configManager.getBrokerMap()
-                const brokerData = brokerMap[broker] ?? {}
-                const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
-                const { value, isBilateral } = transferRate
-                const buyTransferRate = isBilateral ? (transferRate[stock.exchange.toUpperCase()] ?? value) : 0
-                const sellTransferRate = transferRate[stock.exchange.toUpperCase()] ?? transferRate.value
-                const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
-                const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-                if (record.type === 1) {
-                  yestShares -= tradeShares
-                  restYestShares -= tradeShares
-                  const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
-                  const transfer = new Decimal(tradePrice).mul(tradeShares).mul(buyTransferRate).toFixed(2)
-                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission).sub(transfer)
-                } else if (record.type === -1) {
-                  yestShares += tradeShares
-                  const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
-                  tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-                  let stampTax = '0'
-                  let transfer = '0'
-                  if (!isEtfStock) {
-                    stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
-                    transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
-                  }
-                  tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
-                }
+          let todayProfitRate = '0'
+          if (status !== 0) {
+            const timeList = marketOpenTime[stock.region][0][0]
+            const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
+            if (marketStatusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
+              if (status !== 0) {
+
               }
-              todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
+              todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
+              const isEtfStock = item.type === 13
+              let yestShares = shares
+              if (todayTradeRecords.length > 0) {
+                let restYestShares = shares
+                let tradeProfit = new Decimal(0)
+                for (const record of todayTradeRecords) {
+                  const { price: tradePrice, shares: tradeShares, broker } = record
+                  if (!tradePrice || !tradeShares) return
+                  const brokerMap = this.configManager.getBrokerMap()
+                  const brokerData = brokerMap[broker] ?? {}
+                  const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
+                  const { value, isBilateral } = transferRate
+                  const buyTransferRate = isBilateral ? (transferRate[stock.exchange.toUpperCase()] ?? value) : 0
+                  const sellTransferRate = transferRate[stock.exchange.toUpperCase()] ?? transferRate.value
+                  const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
+                  const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
+                  if (record.type === 1) {
+                    yestShares -= tradeShares
+                    restYestShares -= tradeShares
+                    const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
+                    const transfer = new Decimal(tradePrice).mul(tradeShares).mul(buyTransferRate).toFixed(2)
+                    tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission).sub(transfer)
+                  } else if (record.type === -1) {
+                    yestShares += tradeShares
+                    const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
+                    tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
+                    let stampTax = '0'
+                    let transfer = '0'
+                    if (!isEtfStock) {
+                      stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
+                      transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
+                    }
+                    tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
+                  }
+                }
+                todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
+              }
+              // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
+              todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
             }
-            // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-            todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
           }
           stock.profit = {
             totalProfit: Number(totalProfit.div(exchangeRate).toFixed(2)),
@@ -410,7 +421,7 @@ class StockManager {
     if (newShares === 0) {
       const { currency } = quote
       let exchangeRate = 1
-      if (currency !== 'CNY') {
+      if (currency && currency !== 'CNY') {
         const exchangeRates = await getExchangeRates()
         exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
       }

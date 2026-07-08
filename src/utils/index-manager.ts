@@ -3,6 +3,8 @@ import ConfigManager from './config-manger'
 import { getMinuteData, getRealtimeQuote, getStockData } from './data-service'
 import { Stock } from './types'
 import { EventEmitter } from 'vscode'
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
+dayjs.extend(isSameOrAfter)
 
 // const marketOpenTime: Record<string, string[][]> = {
 //   CN: [['09:15', '11:30'], ['13:00', '15:00']],
@@ -142,7 +144,7 @@ class IndexManager {
         const timeList = marketOpenTime[region]
         for (let i = timeList.length - 1; i >= 0; i--) {
           const starTime = dayjs().set('hour', timeList[i][0][0]).set('minute', timeList[i][0][1] ?? 0)
-          if (dayjs().isAfter(starTime)) {
+          if (dayjs().isSameOrAfter(starTime)) {
             endTime = timeList[i][1]
             break
           }

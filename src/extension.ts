@@ -73,7 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
       stockManager.tradeStock(stockItem.stock, -1)
     }),
     vscode.commands.registerCommand('moneyGlitch.setStockPosition', (stockItem) => {
-      stockManager.tradeStock(stockItem.stock, -1)
+      stockManager.setStockPosition(stockItem.stock)
     }),
     vscode.commands.registerCommand('moneyGlitch.selectedDetail', () => {
       createSelectedWebview(context)
