@@ -22,7 +22,7 @@ export interface Quote {
   floatMarketCapital: number     // 流通市值
   lotSize: number                // 一手多少股
   currency: string               // 币种
-  status: number                 // 股票状态
+  status: number                 // 股票状态 0：未上市  1：正常交易  2：停牌
   marketStatus: string           // 交易状态(中文)
   marketStatusId: number         // 交易状态(数字 1：未开盘 3: 集合竞价 4: 休盘中 5：交易中 7：已收盘 8：休市)
   timestamp: number              // 行情数据的生成时间戳（毫秒）
@@ -69,8 +69,7 @@ export interface Stock {
 // 过户费率
 export type TransferRate = {
   value: number
-  isBilateral: boolean
-}  & Record<Exclude<string, 'value' | 'isBilateral'>, number>
+}  & Record<Exclude<string, 'value'>, number>
 
 // 券商
 export interface Broker {

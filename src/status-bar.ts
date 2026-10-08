@@ -193,12 +193,12 @@ export class StatusBarManager {
       todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
     this.profitBarItem.text = `💰 ${totalProfit} | ${todayProfit}`
-    this.profitBarItem.tooltip = `总市值: ${totalMarketValue} 持仓收益: ${totalProfit} (${totalProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+    this.profitBarItem.tooltip = `总市值: ${totalMarketValue} 持仓盈亏: ${totalProfit} (${totalProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
       '-----------------------------\r\n' +
       this.stockList.filter(item => !!item.profit)
         .sort((a, b) => b.profit!.todayProfit - a.profit!.todayProfit)
         .map((v) => {
-          return `${v.name} 持仓收益: ${v.profit!.totalProfit} (${v.profit!.totalProfitRate}%) 当日盈亏: ${v.profit!.todayProfit} (${v.profit!.todayProfitRate}%) `
+          return `${v.name} 持仓盈亏: ${v.profit!.totalProfit} (${v.profit!.totalProfitRate}%) 当日盈亏: ${v.profit!.todayProfit} (${v.profit!.todayProfitRate}%) `
         })
         .join('\r\n-----------------------------\r\n')
     this.profitBarItem.command = {

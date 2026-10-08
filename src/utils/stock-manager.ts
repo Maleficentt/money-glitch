@@ -147,8 +147,7 @@ class StockManager {
         }
         const countdown = dayjs().set('hour', endTime[0]).set('minute', endTime[1] ?? 0).diff(new Date()) + 1000
         const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
+          this.getStockData(true)
         }, countdown)
         this.marketController[region].marketTimer = timer
       } else if (status === 1) { // 未开盘
@@ -156,8 +155,7 @@ class StockManager {
         const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
         const countdown = startTime.diff(new Date()) + 1000
         const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
+          this.getStockData(true)
         }, countdown)
         this.marketController[region].marketTimer = timer
       } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 / 休市
@@ -173,8 +171,7 @@ class StockManager {
           countdown = startTime.add(1, 'd').diff(new Date()) + 1000
         }
         const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
+          this.getStockData(true)
         }, countdown)
         this.marketController[region].marketTimer = timer
       }
@@ -222,8 +219,11 @@ class StockManager {
       if (position) {
         stock.position = position
         const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
-        const { marketStatusId } = item.quote
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs().isSame(record.time, 'day') || (marketStatusId === 1 && dayjs().diff(record.time, 'day') <= 1))
+        const { marketStatusId, timestamp } = item.quote
+        const timeList = marketOpenTime[stock.region][0][0]
+        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
+        const diffOpen = dayjs(startTime).diff(new Date(), 'm')
+        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs(timestamp).isSame(record.time, 'day') || (marketStatusId === 1 && diffOpen > 15 && dayjs(timestamp).diff(record.time, 'day') <= 1))
         if ((cost && shares) || todayTradeRecords.length) {
           const { lastClose, current, currency, status } = item.quote
           // 总盈亏
@@ -243,12 +243,7 @@ class StockManager {
           let todayProfit = new Decimal(0)
           let todayProfitRate = '0'
           if (status !== 0) {
-            const timeList = marketOpenTime[stock.region][0][0]
-            const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-            if (marketStatusId !== 1 || dayjs(startTime).diff(new Date(), 'm') > 15) { // 开盘前15分钟重置当日盈亏
-              if (status !== 0) {
-
-              }
+            if (marketStatusId !== 1 || diffOpen > 15) { // 开盘前15分钟重置当日盈亏
               todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
               const isEtfStock = item.type === 13
               let yestShares = shares
@@ -261,8 +256,8 @@ class StockManager {
                   const brokerMap = this.configManager.getBrokerMap()
                   const brokerData = brokerMap[broker] ?? {}
                   const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
-                  const { value, isBilateral } = transferRate
-                  const buyTransferRate = isBilateral ? (transferRate[stock.exchange.toUpperCase()] ?? value) : 0
+                  const { value } = transferRate
+                  const buyTransferRate = transferRate[stock.exchange.toUpperCase()] ?? value
                   const sellTransferRate = transferRate[stock.exchange.toUpperCase()] ?? transferRate.value
                   const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
                   const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
@@ -288,7 +283,7 @@ class StockManager {
                 todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
               }
               // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-              todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : totalProfitRate
+              todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : todayProfit.div(new Decimal(cost).mul(shares)).mul(100).toFixed(2)
             }
           }
           stock.profit = {
@@ -354,8 +349,8 @@ class StockManager {
     const brokerMap = this.configManager.getBrokerMap()
     const brokerData = brokerMap[broker] ?? {}
     const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
-    const { value, isBilateral } = transferRate
-    const buyTransferRate = isBilateral ? (transferRate[exchange.toUpperCase()] ?? value) : 0
+    const { value } = transferRate
+    const buyTransferRate = transferRate[exchange.toUpperCase()] ?? value
     const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
     const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
     const transfer = new Decimal(price).mul(shares).mul(buyTransferRate).toFixed(2)
