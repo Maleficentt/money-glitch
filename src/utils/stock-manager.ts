@@ -1,24 +1,14 @@
 import dayjs from 'dayjs'
 import ConfigManager from './config-manger'
-import { getExchangeRates, getRealtimeQuote, getStockData } from './data-service'
+import { getExchangeRates, getExchangeRateStatus, getRealtimeQuote, getStockData } from './data-service'
+import { getMarketDate, getMarketOpenTime, getNextMarketDelay, isCanceled, retryDelay } from './market-time'
 import { Position, Stock, TradeRecord } from './types'
 import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
+import { MonthlyProfitLedger } from './monthly-profit'
+import { getTradeFees, validatePosition, validateTrade } from './trade-validation'
 
-dayjs.extend(isSameOrAfter)
-
-// const marketOpenTime: Record<string, string[][]> = {
-//   CN: [['09:15', '11:30'], ['13:00', '15:00']],
-//   HK: [['09:00', '12:00'], ['13:00', '16:00']]
-// }
-
-const marketOpenTime: Record<string, number[][][]> = {
-  CN: [[[9, 15], [11, 30]], [[13], [15]]],
-  HK: [[[9], [12]], [[13], [16]]],
-  US: [[[21, 30], [5]]]
-}
 
 const marketTimerInterval: Record<string, number> = {
   CN: 2000,
@@ -27,6 +17,7 @@ const marketTimerInterval: Record<string, number> = {
 }
 
 interface MarketController {
+  failures: number
   status: number
   symbols: string[]
   abortController: AbortController
@@ -39,9 +30,11 @@ class StockManager {
   private stockList: Stock[] = []
   private stockDataTimer: NodeJS.Timeout | null = null
   private stockDataController = new AbortController()
+  private disposed = false
+  private stockDataFailures = 0
+  private refreshErrors = new Map<string, string>()
   private marketController: Record<string, MarketController> = {}
-  private settlementState?: vscode.Memento
-  private settling = false
+  private profitLedger?: MonthlyProfitLedger
   private _onDidChangeStockList = new EventEmitter<Stock[]>()
   readonly onDidChangeStockList = this._onDidChangeStockList.event
 
@@ -55,72 +48,70 @@ class StockManager {
   }
 
   getStockData(isRefresh = false) {
+    if (this.disposed) return
     this.stockDataController.abort()
-    this.stockDataController = new AbortController()
-    if (isRefresh && this.stockDataTimer) {
-      clearTimeout(this.stockDataTimer)
-    }
-    const stockSymbols = this.configManager.getStockSymbols()
-    let restSymbols = Array.from(new Set([...stockSymbols]))
+    const controller = new AbortController()
+    this.stockDataController = controller
+    const isCurrent = () => !this.disposed && !controller.signal.aborted && this.stockDataController === controller
+    if (this.stockDataTimer) clearTimeout(this.stockDataTimer)
+    this.stopMarketRequests()
+    const positions = this.configManager.getPosition()
+    const today = getMarketDate()
+    const positionSymbols = Object.keys(positions).filter(symbol => positions[symbol].shares > 0 ||
+      positions[symbol].tradeRecords?.some(record => record.time === today))
+    const stockSymbols = [...new Set([...this.configManager.getStockSymbols(), ...positionSymbols])]
+    let restSymbols = stockSymbols
     if (!isRefresh) {
-      const selectedStockList: Stock[] = []
-      this.stockList.forEach(stock => {
-        if (stockSymbols.includes(stock.symbol)) {
-          selectedStockList.push(stock)
-        }
-      })
-      this.stockList = selectedStockList
-      restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
+      this.stockList = this.stockList.filter(stock => stockSymbols.includes(stock.symbol))
+      restSymbols = stockSymbols.filter(symbol => !this.stockList.some(stock => stock.symbol === symbol))
     }
-    if (restSymbols.length) {
-      getStockData(restSymbols, { signal: this.stockDataController.signal }).then(async data => {
-        if (isRefresh) {
-          this.stockList = [...data]
-        } else {
-          this.stockList.push(...data)
-        }
-        await this.formatStockList()
-        this.sort()
-        this._onDidChangeStockList.fire(this.stockList)
-        this.getMarketQuote()
-        if (isRefresh) {
-          this.stockDataTimer = setTimeout(() => {
-            this.getStockData(true)
-          }, 600000)
-        }
-      }).catch(err => {
-        console.log(err)
-        const errData = err.toJSON()
-        if (errData.code !== 'ERR_CANCELED') {
-          this.stockDataTimer = setTimeout(() => {
-            this.getStockData()
-          }, 1000)
-        }
-      })
-    } {
+    const dataRequest = restSymbols.length
+      ? getStockData(restSymbols, { signal: controller.signal })
+      : Promise.resolve([])
+    dataRequest.then(async data => {
+      if (!isCurrent()) return
+      this.stockList = isRefresh ? data : [...this.stockList, ...data]
+      await this.formatStockList(isCurrent)
+      if (!isCurrent()) return
+      this.stockDataFailures = 0
+      this.refreshErrors.clear()
       this.sort()
       this._onDidChangeStockList.fire(this.stockList)
-    }
+      this.getMarketQuote()
+      this.stockDataTimer = setTimeout(() => {
+        if (isCurrent()) this.getStockData(true)
+      }, 600000)
+    }).catch((error: unknown) => {
+      if (isCurrent() && !isCanceled(error)) {
+        console.error('Failed to refresh stocks', error)
+        this.refreshErrors.set('all', '行情刷新失败，正在重试（当前显示上次数据）')
+        this._onDidChangeStockList.fire(this.stockList)
+        this.stockDataTimer = setTimeout(() => {
+          if (isCurrent()) this.getStockData(isRefresh)
+        }, retryDelay(++this.stockDataFailures))
+      }
+    })
+  }
+
+  private stopMarketRequests() {
+    Object.values(this.marketController).forEach(controller => {
+      if (controller.marketTimer) clearTimeout(controller.marketTimer)
+      if (controller.quoteTimer) clearTimeout(controller.quoteTimer)
+      controller.abortController.abort()
+    })
+    this.marketController = {}
   }
 
   private getMarketQuote() {
-    Object.keys(this.marketController).forEach(region => {
-      const { marketTimer, abortController, quoteTimer } = this.marketController[region]
-      if (marketTimer) {
-        clearTimeout(marketTimer)
-      }
-      abortController.abort()
-      if (quoteTimer) {
-        clearTimeout(quoteTimer)
-      }
-    })
-    this.marketController = {}
+    this.stopMarketRequests()
+    if (this.disposed) return
     this.stockList.forEach(item => {
       if (this.marketController[item.region]) {
         this.marketController[item.region].status = item.quote.marketStatusId
         this.marketController[item.region].symbols.push(item.symbol)
       } else {
         this.marketController[item.region] = {
+          failures: 0,
           status: item.quote.marketStatusId,
           symbols: [item.symbol],
           abortController: new AbortController(),
@@ -129,176 +120,145 @@ class StockManager {
         }
       }
     })
-    // 交易中立刻获取实时行情，计算什么时候收盘
-    // 未开盘算到当天开盘时间
-    // 休盘中算到下一次开盘时间
-    // 已收盘/休市算到第二天开市
-    // status: 1:未开盘 3:集合竞价 4：休盘中 5：交易中 7：已收盘 8：休市
-    Object.keys(this.marketController).forEach(region => {
-      const { status } = this.marketController[region]
-      if ([3, 5].includes(status)) { // 集合竞价、交易中
-        this.getRealtimeQuote(region)
-        let endTime: number[] = []
-        const timeList = marketOpenTime[region]
-        for (let i = timeList.length - 1; i >= 0; i--) {
-          const starTime = dayjs().set('hour', timeList[i][0][0]).set('minute', timeList[i][0][1] ?? 0)
-          if (dayjs().isSameOrAfter(starTime)) {
-            endTime = timeList[i][1]
-            break
-          }
-        }
-        const countdown = dayjs().set('hour', endTime[0]).set('minute', endTime[1] ?? 0).diff(new Date()) + 1000
-        const timer = setTimeout(() => {
-          this.getStockData(true)
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      } else if (status === 1) { // 未开盘
-        const timeList = marketOpenTime[region][0][0]
-        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-        const countdown = startTime.diff(new Date()) + 1000
-        const timer = setTimeout(() => {
-          this.getStockData(true)
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 / 休市
-        let timeList = marketOpenTime[region][0][0]
-        if (status === 4) { // 休盘
-          timeList = marketOpenTime[region][1][0]
-        }
-        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-        let countdown = 0
-        if (status === 4) { // 休盘
-          countdown = startTime.diff(new Date()) + 1000
-        } else if ([7, 8].includes(status)) { // 收盘
-          countdown = startTime.add(1, 'd').diff(new Date()) + 1000
-        }
-        const timer = setTimeout(() => {
-          this.getStockData(true)
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      }
+    Object.entries(this.marketController).forEach(([region, controller]) => {
+      if ([3, 5].includes(controller.status)) this.getRealtimeQuote(region)
+      controller.marketTimer = setTimeout(() => {
+        if (!this.disposed && this.marketController[region] === controller) this.getStockData(true)
+      }, getNextMarketDelay(region, controller.status))
     })
   }
 
   private getRealtimeQuote(region: string) {
-    const { symbols, abortController, quoteTimer } = this.marketController[region]
-    abortController.abort()
-    if (quoteTimer) {
-      clearTimeout(quoteTimer)
-    }
-    const newAbortController = new AbortController()
-    this.marketController[region].abortController = newAbortController
-    if (symbols.length) {
-      getRealtimeQuote(symbols, { signal: newAbortController.signal }).then(async quoteMap => {
-        this.stockList.forEach(item => {
-          if (quoteMap[item.symbol]) {
-            Object.assign(item.quote, quoteMap[item.symbol])
-          }
-        })
-        await this.formatStockList()
-        this._onDidChangeStockList.fire(this.stockList)
-        this.marketController[region].quoteTimer = setTimeout(() => {
-          this.getRealtimeQuote(region)
-        }, marketTimerInterval[region])
-      }).catch(err => {
-        const errData = err.toJSON()
-        if (errData.code !== 'ERR_CANCELED') {
-          this.marketController[region].quoteTimer = setTimeout(() => {
-            this.getRealtimeQuote(region)
-          }, marketTimerInterval[region])
-        }
+    const controller = this.marketController[region]
+    if (this.disposed || !controller) return
+    controller.abortController.abort()
+    if (controller.quoteTimer) clearTimeout(controller.quoteTimer)
+    const request = new AbortController()
+    controller.abortController = request
+    const isCurrent = () => !this.disposed && !request.signal.aborted &&
+      this.marketController[region] === controller && controller.abortController === request
+    getRealtimeQuote(controller.symbols, { signal: request.signal }).then(async quoteMap => {
+      if (!isCurrent()) return
+      this.stockList.forEach(item => {
+        if (quoteMap[item.symbol]) Object.assign(item.quote, quoteMap[item.symbol])
       })
-    }
+      await this.formatStockList(isCurrent)
+      if (!isCurrent()) return
+      controller.failures = 0
+      this.refreshErrors.delete(region)
+      this._onDidChangeStockList.fire(this.stockList)
+      controller.quoteTimer = setTimeout(() => {
+        if (isCurrent()) this.getRealtimeQuote(region)
+      }, marketTimerInterval[region] ?? 10000)
+    }).catch((error: unknown) => {
+      if (isCurrent() && !isCanceled(error)) {
+        console.error('Failed to refresh quotes', error)
+        this.refreshErrors.set(region, `${region} 行情刷新失败，正在重试`)
+        this._onDidChangeStockList.fire(this.stockList)
+        controller.quoteTimer = setTimeout(() => {
+          if (isCurrent()) this.getRealtimeQuote(region)
+        }, retryDelay(++controller.failures, marketTimerInterval[region] ?? 10000))
+      }
+    })
   }
 
-  private async formatStockList() {
+  private async formatStockList(isCurrent: () => boolean = () => true) {
     const stockPosition = this.configManager.getPosition()
     const stockList: Stock[] = []
-    const exchangeRates = await getExchangeRates()
+    let exchangeRates: Awaited<ReturnType<typeof getExchangeRates>> = []
+    const needsExchangeRates = this.stockList.some(stock => stockPosition[stock.symbol] && stock.quote.currency && stock.quote.currency !== 'CNY')
+    if (needsExchangeRates) {
+      try {
+        exchangeRates = await getExchangeRates()
+      } catch (error) {
+        console.error('Exchange rates unavailable; foreign profit is not calculated', error)
+      }
+    }
+    if (!isCurrent()) return
     this.stockList.forEach(item => {
       const stock = { ...item }
+      delete stock.profit
+      delete stock.position
+      delete stock.exchangeRateStale
       const position = stockPosition[stock.symbol]
-      if (position) {
-        stock.position = position
-        const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
-        const { marketStatusId, timestamp } = item.quote
-        const timeList = marketOpenTime[stock.region][0][0]
-        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-        const diffOpen = dayjs(startTime).diff(new Date(), 'm')
-        const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs(timestamp).isSame(record.time, 'day') || (marketStatusId === 1 && diffOpen > 15 && dayjs(timestamp).diff(record.time, 'day') <= 1))
-        if ((cost && shares) || todayTradeRecords.length) {
-          const { lastClose, current, currency, status } = item.quote
-          // 总盈亏
-          let exchangeRate = 1
-          if (currency && currency !== 'CNY') {
-            exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
-          }
-          const totalProfit = status !== 0
-            ? shares
-              ? new Decimal(current).sub(cost).mul(shares)
-              : new Decimal(pTotalProfit || 0)
-            : new Decimal(0)
-          // 总盈亏百分比 = (当前价 - 成本价) / 成本价
-          const totalProfitRate = status !== 0 && cost
-            ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2)
-            : '0'
-          let todayProfit = new Decimal(0)
-          let todayProfitRate = '0'
-          if (status !== 0) {
-            if (marketStatusId !== 1 || diffOpen > 15) { // 开盘前15分钟重置当日盈亏
-              todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
-              const isEtfStock = item.type === 13
-              let yestShares = shares
-              if (todayTradeRecords.length > 0) {
-                let restYestShares = shares
-                let tradeProfit = new Decimal(0)
-                for (const record of todayTradeRecords) {
-                  const { price: tradePrice, shares: tradeShares, broker } = record
-                  if (!tradePrice || !tradeShares) return
-                  const brokerMap = this.configManager.getBrokerMap()
-                  const brokerData = brokerMap[broker] ?? {}
-                  const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0, stampTaxRate = 0 } = brokerData
-                  const { value } = transferRate
-                  const buyTransferRate = transferRate[stock.exchange.toUpperCase()] ?? value
-                  const sellTransferRate = transferRate[stock.exchange.toUpperCase()] ?? transferRate.value
-                  const commissionTemp = new Decimal(tradePrice).mul(tradeShares).mul(commissionRate).toFixed(2)
-                  const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-                  if (record.type === 1) {
-                    yestShares -= tradeShares
-                    restYestShares -= tradeShares
-                    const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
-                    const transfer = new Decimal(tradePrice).mul(tradeShares).mul(buyTransferRate).toFixed(2)
-                    tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission).sub(transfer)
-                  } else if (record.type === -1) {
-                    yestShares += tradeShares
-                    const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
-                    tradeProfit = tradeProfit.add(currentTradeProfit).sub(commission)
-                    let stampTax = '0'
-                    let transfer = '0'
-                    if (!isEtfStock) {
-                      stampTax = new Decimal(tradePrice).mul(tradeShares).mul(stampTaxRate).toFixed(2)
-                      transfer = new Decimal(tradePrice).mul(tradeShares).mul(sellTransferRate).toFixed(2)
-                    }
-                    tradeProfit = tradeProfit.sub(stampTax).sub(transfer)
-                  }
-                }
-                todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
+      try {
+        if (position) {
+          validatePosition(position)
+          stock.position = position
+          const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
+          const { marketStatusId, timestamp } = item.quote
+          const diffOpen = Math.floor((getMarketOpenTime(stock.region) - Date.now()) / 60000)
+          const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs(timestamp).isSame(record.time, 'day') || (marketStatusId === 1 && diffOpen > 15 && dayjs(timestamp).diff(record.time, 'day') <= 1))
+          if (shares || todayTradeRecords.length) {
+            const { lastClose, current, currency, status } = item.quote
+            if (!Number.isFinite(current) || !Number.isFinite(lastClose)) throw new Error('行情价格无效')
+            // 总盈亏
+            let exchangeRate = 1
+            if (currency && currency !== 'CNY') {
+              const rate = exchangeRates.find(item => item.quote === currency)?.rate
+              if (!rate || !Number.isFinite(rate) || rate <= 0) {
+                stockList.push(stock)
+                return
               }
-              // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-              todayProfitRate = yestShares ? todayProfit.div(new Decimal(yestShares).mul(lastClose)).mul(100).toFixed(2) : todayProfit.div(new Decimal(cost).mul(shares)).mul(100).toFixed(2)
+              exchangeRate = rate
+              stock.exchangeRateStale = getExchangeRateStatus().stale
+            }
+            const totalProfit = status !== 0
+              ? shares
+                ? new Decimal(current).sub(cost).mul(shares)
+                : new Decimal(pTotalProfit || 0)
+              : new Decimal(0)
+            // 总盈亏百分比 = (当前价 - 成本价) / 成本价
+            const totalProfitRate = status !== 0 && cost
+              ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2)
+              : '0'
+            let todayProfit = new Decimal(0)
+            let todayProfitRate = '0'
+            if (status !== 0) {
+              if (marketStatusId !== 1 || diffOpen > 15) { // 开盘前15分钟重置当日盈亏
+                todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
+                let yestShares = shares
+                if (todayTradeRecords.length > 0) {
+                  let restYestShares = shares
+                  let tradeProfit = new Decimal(0)
+                  for (const record of todayTradeRecords) {
+                    const { price: tradePrice, shares: tradeShares } = record
+                    validateTrade(record)
+                    const fees = getTradeFees(stock, record, this.configManager.getBrokerMap())
+                    if (record.type === 1) {
+                      yestShares -= tradeShares
+                      restYestShares -= tradeShares
+                      const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
+                      tradeProfit = tradeProfit.add(currentTradeProfit).sub(fees)
+                    } else if (record.type === -1) {
+                      yestShares += tradeShares
+                      const currentTradeProfit = new Decimal(tradePrice).sub(lastClose).mul(tradeShares)
+                      tradeProfit = tradeProfit.add(currentTradeProfit).sub(fees)
+                    }
+                  }
+                  todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
+                }
+                // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
+                const todayBase = yestShares ? new Decimal(yestShares).mul(lastClose) : new Decimal(cost).mul(shares)
+                todayProfitRate = todayBase.isZero() ? '0' : todayProfit.div(todayBase).mul(100).toFixed(2)
+              }
+            }
+            stock.profit = {
+              totalProfit: Number((shares ? totalProfit.div(exchangeRate) : totalProfit).toFixed(2)),
+              totalProfitRate: Number(totalProfitRate),
+              todayProfit: Number(todayProfit.div(exchangeRate).toFixed(2)),
+              todayProfitRate: todayProfitRate ? Number(todayProfitRate) : 0
             }
           }
-          stock.profit = {
-            totalProfit: Number(totalProfit.div(exchangeRate).toFixed(2)),
-            totalProfitRate: Number(totalProfitRate),
-            todayProfit: Number(todayProfit.div(exchangeRate).toFixed(2)),
-            todayProfitRate: todayProfitRate ? Number(todayProfitRate) : 0
-          }
-        }
 
+        }
+      } catch (error) {
+        console.error(`Profit unavailable for ${stock.symbol}`, error)
+        delete stock.profit
       }
       stockList.push(stock)
     })
+    if (!isCurrent()) return
     this.stockList = stockList
     await this.settleMonthlyProfit()
   }
@@ -318,60 +278,63 @@ class StockManager {
     return this.stockList
   }
 
+  getRefreshStatus(): string {
+    return [...this.refreshErrors.values()].join('\r\n')
+  }
+
   refresh() {
     this.getStockData(true)
   }
   
 
   initializeSettlement(state: vscode.Memento) {
-    this.settlementState = state
+    this.profitLedger = new MonthlyProfitLedger(state,
+      () => this.configManager.getConfig<number>('monthlyProfit', 0),
+      async value => {
+        await this.configManager.updateConfig('monthlyProfit', value)
+        this.configManager.refreshConfig()
+      })
+  }
+
+  getMonthlyProfit(): number {
+    return this.profitLedger?.getMonthlyProfit() ?? this.configManager.getConfig<number>('monthlyProfit', 0)
+  }
+
+  getSettlementStatus(): string {
+    return this.profitLedger?.status ?? ''
   }
 
   isProfitSettled(stock: Stock): boolean {
-    const date = this.settlementState?.get<{ date: string }>('monthlyProfitSettlement')?.date
-    return stock.region === 'CN' && date === dayjs(stock.quote.timestamp).format('YYYY-MM-DD')
+    return this.profitLedger?.isSettled(stock) ?? false
   }
 
   private async settleMonthlyProfit() {
-    if (!this.settlementState || this.settling) return
-    this.settling = true
     try {
-      // Persist the intended value first so a failed settings write can be retried safely.
-      const pending = this.settlementState.get<{ date: string, value: number }>('monthlyProfitPending')
-      if (pending) {
-        await this.configManager.updateConfig('monthlyProfit', pending.value)
-        this.configManager.refreshConfig()
-        await this.settlementState.update('monthlyProfitSettlement', pending)
-        await this.settlementState.update('monthlyProfitPending', undefined)
-      }
-      const today = dayjs().format('YYYY-MM-DD')
-      const previous = this.settlementState.get<{ date: string }>('monthlyProfitSettlement')
-      if (previous && previous.date >= today) return
-      const positions = this.configManager.getPosition()
-      const symbols = Object.keys(positions).filter(symbol => /^(SH|SZ|BJ)/.test(symbol) &&
-        (positions[symbol].shares > 0 || positions[symbol].tradeRecords?.some(record => record.time === today)))
-      if (!symbols.length) return
-      const stocks = symbols.map(symbol => this.stockList.find(stock => stock.symbol === symbol))
-      if (stocks.some(stock => !stock?.profit || stock.region !== 'CN' ||
-        stock.quote.marketStatusId !== 7 || dayjs(stock.quote.timestamp).format('YYYY-MM-DD') !== today ||
-        dayjs(stock.quote.timestamp).hour() < 15 || !Number.isFinite(stock.profit.todayProfit))) return
-      const base = previous && previous.date.slice(0, 7) !== today.slice(0, 7)
-        ? 0 : this.configManager.getConfig<number>('monthlyProfit', 0)
-      const value = Number(stocks.reduce((sum, stock) => sum.add(stock!.profit!.todayProfit), new Decimal(base)).toFixed(2))
-      const settlement = { date: today, value }
-      await this.settlementState.update('monthlyProfitPending', settlement)
-      await this.configManager.updateConfig('monthlyProfit', value)
-      this.configManager.refreshConfig()
-      await this.settlementState.update('monthlyProfitSettlement', settlement)
-      await this.settlementState.update('monthlyProfitPending', undefined)
+      await this.profitLedger?.settle(this.stockList, this.configManager.getPosition())
     } catch (error) {
       console.error('Failed to settle monthly profit', error)
-    } finally {
-      this.settling = false
+    }
+  }
+
+  async correctDailyProfit() {
+    const date = await vscode.window.showInputBox({ prompt: '补录或修正 A 股每日总盈亏，日期格式 YYYY-MM-DD' })
+    if (!date) return
+    const input = await vscode.window.showInputBox({ prompt: `${date} 的 A 股总盈亏（元，可为负数；替换该日自动结算）` })
+    if (input === undefined) return
+    try {
+      if (!input.trim()) throw new Error('请输入收益金额')
+      if (!this.profitLedger) throw new Error('收益账本尚未初始化')
+      await this.profitLedger.correctDay(date, Number(input))
+      this._onDidChangeStockList.fire(this.stockList)
+      void vscode.window.showInformationMessage(`${date} 收益已保存`)
+    } catch (error) {
+      void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error))
     }
   }
 
   dispose() {
+    this.disposed = true
+    this._onDidChangeStockList.dispose()
     this.stockDataController.abort()
     if (this.stockDataTimer) {
       clearTimeout(this.stockDataTimer)
@@ -389,177 +352,121 @@ class StockManager {
     this.marketController = {}
   }
 
-  buyStock(stock: Stock, tradeData: TradeRecord) {
-    const { symbol, type: stockType, exchange } = stock
-    const { price, shares, broker } = tradeData
-    const allPosition = this.configManager.getPosition()
-    const stockPosition = allPosition[symbol as string] ?? {}
-    const tradeRecords = stockPosition.tradeRecords ?? []
-    const oldShares = stockPosition.shares || 0
-    const newShares = oldShares + shares
-    const isEtfStock = stockType === 13
-    const brokerMap = this.configManager.getBrokerMap()
-    const brokerData = brokerMap[broker] ?? {}
-    const { commissionRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
-    const { value } = transferRate
-    const buyTransferRate = transferRate[exchange.toUpperCase()] ?? value
-    const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
-    const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-    const transfer = new Decimal(price).mul(shares).mul(buyTransferRate).toFixed(2)
-    const oldCost = stockPosition.cost ?? 0
-    let newCost = new Decimal(oldCost).mul(oldShares).add(new Decimal(price).mul(shares)).add(commission).add(transfer).div(newShares).toFixed(4)
-    if (oldCost === 0) {
-      const totalProfit = stockPosition.totalProfit ?? 0
-      // （新买入总金额 + 买入手续费 - 卖出总收入）÷ 新买入股数
-      newCost = new Decimal(price).mul(shares).add(commission).add(transfer).sub(totalProfit).div(shares).toFixed(4)
+  private async requireExchangeRate(currency: string): Promise<number> {
+    if (!currency || currency === 'CNY') return 1
+    const rates = await getExchangeRates()
+    const rate = rates.find(item => item.quote === currency)?.rate
+    if (getExchangeRateStatus().stale || !rate || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error(`暂时无法获取 ${currency} 的有效汇率，请稍后重试`)
     }
-    const stockData: Position = {
-      cost: Number(newCost),
-      shares: newShares,
-      tradeRecords: tradeRecords
-    }
-    const tradeRecord = {
-      ...tradeData,
-      time: dayjs().format('YYYY-MM-DD')
-    }
-    if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.tradeRecords = [tradeRecord]
-    } else {
-      stockData.tradeRecords = tradeRecords.concat(tradeRecord)
-    }
-    allPosition[symbol as string] = stockData
-    this.configManager.updateConfig('position', allPosition)
-    this.configManager.addStockSymbol(symbol as string)
+    return rate
   }
 
-  async sellStock(stock: Stock, tradeData: TradeRecord) {
-    const { symbol, type: stockType, exchange, quote } = stock
-    const { price, shares, broker } = tradeData
-    const allPosition = this.configManager.getPosition()
-    const stockPosition = allPosition[symbol as string] ?? {}
-    const tradeRecords = stockPosition.tradeRecords ?? []
-    const oldShares = stockPosition.shares || 0
-    const newShares = oldShares - shares
-    const oldCost = stockPosition.cost || 0
-    const isEtfStock = stockType === 13
-    const brokerMap = this.configManager.getBrokerMap()
-    const brokerData = brokerMap[broker] ?? {}
-    const { commissionRate = 0, stampTaxRate = 0, transferRate, stockMinCommission = 0, etfMinCommission = 0 } = brokerData
-    const sellTransferRate = transferRate[exchange.toUpperCase()] ?? transferRate.value
-    const commissionTemp = new Decimal(price).mul(shares).mul(commissionRate).toFixed(2)
-    const commission = Math.max(Number(commissionTemp), isEtfStock ? etfMinCommission : stockMinCommission)
-    let stampTax = '0'
-    let transfer = '0'
-    if (!isEtfStock) {
-      stampTax = new Decimal(price).mul(shares).mul(stampTaxRate).toFixed(2)
-      transfer = new Decimal(price).mul(shares).mul(sellTransferRate).toFixed(2)
-    }
-    let newCost = new Decimal(0)
-    if (newShares) {
-      let marketCapital = new Decimal(oldCost).mul(oldShares).sub(new Decimal(price).mul(shares)).add(commission)
-      marketCapital = marketCapital.add(stampTax).add(transfer)
-      newCost = marketCapital.div(newShares)
-    }
-    const stockData: Position = {
-      cost: Number(newCost.toFixed(4)),
-      shares: newShares,
-      tradeRecords: tradeRecords
-    }
-    if (newShares === 0) {
-      const { currency } = quote
-      let exchangeRate = 1
-      if (currency && currency !== 'CNY') {
-        const exchangeRates = await getExchangeRates()
-        exchangeRate = exchangeRates.find(item => item.quote === currency)!.rate
+  async buyStock(stock: Stock, tradeData: TradeRecord): Promise<void> {
+    validateTrade(tradeData)
+    if (tradeData.type !== 1) throw new Error('买入交易方向无效')
+    const { price, shares } = tradeData
+    const fees = getTradeFees(stock, tradeData, this.configManager.getBrokerMap())
+    await this.configManager.updatePositionWith(stock.symbol, async current => {
+      const position = current ?? { cost: 0, shares: 0 }
+      validatePosition(position)
+      const newShares = position.shares + shares
+      let capital = new Decimal(position.cost).mul(position.shares).add(new Decimal(price).mul(shares)).add(fees)
+      // Realized profit is stored in CNY; convert back before incorporating it into the native cost.
+      if (position.shares === 0 && position.totalProfit) {
+        const rate = await this.requireExchangeRate(stock.quote.currency)
+        capital = capital.sub(new Decimal(position.totalProfit).mul(rate))
       }
-      stockData.totalProfit = Number(new Decimal(price).sub(oldCost).mul(oldShares).sub(commission).sub(stampTax).sub(transfer).div(exchangeRate).toFixed(2)) ?? 0
-    }
-    const tradeRecord = {
-      ...tradeData,
-      time: dayjs().format('YYYY-MM-DD')
-    }
-    if (!tradeRecords.some((item) => dayjs().isSame(item.time, 'day'))) {
-      stockData.tradeRecords = [tradeRecord]
-    } else {
-      stockData.tradeRecords = tradeRecords.concat(tradeRecord)
-    }
-    allPosition[symbol as string] = stockData
-    this.configManager.updateConfig('position', allPosition)
-  }
-
-  async tradeStock(stock: Stock, type: number) {
-    const typeDisplay = type > 0 ? '买入' : '卖出'
-    const price = stock.quote.current || 0
-    const inputPrice = await vscode.window.showInputBox({
-      prompt: `请输入${typeDisplay}价格`,
-      value: price ? String(price) : '',
-      validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的价格')
-    })
-    if (!inputPrice) {
-      return
-    }
-    const inputShares = await vscode.window.showInputBox({
-      prompt: `请输入${typeDisplay}数量`,
-      validateInput: (value) => (Number(value) > 0 ? undefined : '请输入大于 0 的数量')
-    })
-    if (!inputShares) return
-    const brokerMap = this.configManager.getBrokerMap()
-    const quickPick = vscode.window.createQuickPick()
-    quickPick.placeholder = '请选择券商'
-    const quickPickItems = Object.keys(brokerMap).map(key => {
-      const broker = brokerMap[key]
+      const tradeRecords = (position.tradeRecords ?? []).filter(item => dayjs().isSame(item.time, 'day'))
+      // Subscribe before committing the trade, so a subscription failure cannot cause a duplicate retry.
+      await this.configManager.addStockSymbol(stock.symbol)
       return {
-        label: broker.name,
-        description: broker.code
+        cost: Number(capital.div(newShares).toFixed(4)),
+        shares: newShares,
+        tradeRecords: [...tradeRecords, { ...tradeData, time: dayjs().format('YYYY-MM-DD') }]
       }
-    })
-    quickPickItems.push({
-      label: '无',
-      description: ''
-    })
-    quickPick.items = quickPickItems
-    let broker = ''
-    quickPick.onDidChangeSelection(selection => {
-      broker = selection[0]!.description ?? ''
-    })
-    quickPick.show()
-    quickPick.onDidAccept(async () => {
-      const tradeRecord = {
-        type,
-        price: Number(inputPrice),
-        shares: Number(inputShares),
-        broker
-      }
-      if (type > 0) {
-        this.buyStock(stock, tradeRecord)
-      } else {
-        this.sellStock(stock, tradeRecord)
-      }
-      quickPick.hide()
-      quickPick.dispose()
     })
   }
 
-  async setStockPosition(stock: Stock) {
-    const cost = stock.quote.current || 0
-    const inputCost = await vscode.window.showInputBox({
-      prompt: `请输入成本`,
-      value: cost ? String(cost) : ''
+  async sellStock(stock: Stock, tradeData: TradeRecord): Promise<void> {
+    validateTrade(tradeData)
+    if (tradeData.type !== -1) throw new Error('卖出交易方向无效')
+    const { price, shares } = tradeData
+    const fees = getTradeFees(stock, tradeData, this.configManager.getBrokerMap())
+    await this.configManager.updatePositionWith(stock.symbol, async current => {
+      const position = current ?? { cost: 0, shares: 0 }
+      validatePosition(position)
+      if (shares > position.shares) throw new Error(`卖出数量不能超过当前持仓（${position.shares} 股）`)
+      const newShares = position.shares - shares
+      const capital = new Decimal(position.cost).mul(position.shares).sub(new Decimal(price).mul(shares)).add(fees)
+      const tradeRecords = (position.tradeRecords ?? []).filter(item => dayjs().isSame(item.time, 'day'))
+      const next: Position = {
+        cost: newShares ? Number(capital.div(newShares).toFixed(4)) : 0,
+        shares: newShares,
+        tradeRecords: [...tradeRecords, { ...tradeData, time: dayjs().format('YYYY-MM-DD') }]
+      }
+      if (newShares === 0) {
+        const rate = await this.requireExchangeRate(stock.quote.currency)
+        next.totalProfit = Number(capital.negated().div(rate).toFixed(2))
+      }
+      return next
     })
-    if (!inputCost) {
-      return
+  }
+
+  async tradeStock(stock: Stock, type: number): Promise<void> {
+    try {
+      const typeDisplay = type > 0 ? '买入' : '卖出'
+      const price = stock.quote.current || 0
+      const inputPrice = await vscode.window.showInputBox({
+        prompt: `请输入${typeDisplay}价格`,
+        value: price ? String(price) : '',
+        validateInput: value => Number.isFinite(Number(value)) && Number(value) > 0
+          ? undefined : '请输入大于 0 的有限数字'
+      })
+      if (inputPrice === undefined) return
+      const inputShares = await vscode.window.showInputBox({
+        prompt: `请输入${typeDisplay}数量`,
+        validateInput: value => Number.isSafeInteger(Number(value)) && Number(value) > 0
+          ? undefined : '请输入大于 0 的整数数量'
+      })
+      if (inputShares === undefined) return
+      const brokers = this.configManager.getBrokerMap()
+      const options = Object.keys(brokers).map(code => ({ label: brokers[code].name, description: code }))
+      options.push({ label: '无', description: '' })
+      const selected = await vscode.window.showQuickPick(options, { placeHolder: '请选择券商' })
+      if (!selected) return
+      const trade = { type, price: Number(inputPrice), shares: Number(inputShares), broker: selected.description }
+      if (type === 1) await this.buyStock(stock, trade)
+      else await this.sellStock(stock, trade)
+    } catch (error) {
+      await vscode.window.showErrorMessage(error instanceof Error ? error.message : '交易保存失败')
     }
-    const inputShares = await vscode.window.showInputBox({
-      prompt: `请输入持仓数量`,
-      validateInput: (value) => (Number(value) >= 0 ? undefined : '请输入大于或等于 0 的数量')
-    })
-    if (!inputShares) return
-    const position = {
-      symbol: stock.symbol,
-      cost: Number(inputCost),
-      shares: Number(inputShares)
+  }
+
+  async setStockPosition(stock: Stock): Promise<void> {
+    try {
+      const cost = stock.quote.current || 0
+      const inputCost = await vscode.window.showInputBox({
+        prompt: '请输入成本',
+        value: cost ? String(cost) : '',
+        validateInput: value => value.trim() && Number.isFinite(Number(value))
+          ? undefined : '请输入有限数字成本'
+      })
+      if (inputCost === undefined) return
+      const inputShares = await vscode.window.showInputBox({
+        prompt: '请输入持仓数量',
+        validateInput: value => value.trim() && Number.isSafeInteger(Number(value)) && Number(value) >= 0
+          ? undefined : '请输入大于或等于 0 的整数数量'
+      })
+      if (inputShares === undefined) return
+      await this.configManager.updatePosition({
+        symbol: stock.symbol,
+        cost: Number(inputCost),
+        shares: Number(inputShares)
+      })
+    } catch (error) {
+      await vscode.window.showErrorMessage(error instanceof Error ? error.message : '持仓保存失败')
     }
-    this.configManager.updatePosition(position)
   }
 }
 

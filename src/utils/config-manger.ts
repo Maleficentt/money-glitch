@@ -1,9 +1,11 @@
 import * as vscode from 'vscode'
 import { Broker, Position } from './types'
+import { validatePosition } from './trade-validation'
 
 class ConfigManager {
   private static instance: ConfigManager
   private config = vscode.workspace.getConfiguration('moneyGlitch')
+  private positionWrites: Promise<void> = Promise.resolve()
 
   private constructor() { /* empty */ }
 
@@ -71,15 +73,29 @@ class ConfigManager {
     return this.getConfig<Record<string, Position>>('position', {})
   }
 
-  updatePosition(stockPosition: Position) {
-    const { ...position } = this.getPosition()
-    const { symbol, cost, shares, tradeRecords } = stockPosition
-    position[symbol as string] = {
+  updatePositionWith(symbol: string, update: (current: Position | undefined) => Position | Promise<Position>): Promise<void> {
+    const operation = this.positionWrites.then(async () => {
+      if (typeof symbol !== 'string' || !symbol.trim()) throw new Error('股票代码不能为空')
+      this.refreshConfig()
+      const positions = { ...this.getPosition() }
+      const next = await update(positions[symbol])
+      validatePosition(next)
+      positions[symbol] = next
+      await this.updateConfig('position', positions)
+      this.refreshConfig()
+    })
+    this.positionWrites = operation.catch(() => { /* Keep the queue usable after a rejected write. */ })
+    return operation
+  }
+
+  updatePosition(stockPosition: Position): Promise<void> {
+    const { symbol, cost, shares } = stockPosition
+    return this.updatePositionWith(symbol as string, current => ({
+      ...current,
       cost,
       shares,
-      tradeRecords
-    }
-    return this.updateConfig('position', position)
+      tradeRecords: stockPosition.tradeRecords ?? current?.tradeRecords
+    }))
   }
 
   getIndexSymbols(): string[] {

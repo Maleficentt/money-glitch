@@ -1,32 +1,44 @@
-import axios from 'axios'
+import axios, { AxiosRequestConfig } from 'axios'
 import { Quote, Stock, Exchange } from './types'
-import dayjs from 'dayjs'
+let cachedCookies: Record<string, string> | undefined
+let cookieRequest: Promise<Record<string, string>> | undefined
 
-let cachedCookies: Record<string, string>
+function request(url: string, config: AxiosRequestConfig = {}) {
+  return axios.get(url, { timeout: 10000, ...config }).catch((error: unknown) => {
+    if (axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0)) {
+      cachedCookies = undefined
+    }
+    throw error
+  })
+}
 
 async function getCookie(source = 'xq') {
   // 1. 检查缓存
   if (cachedCookies) {
     return cachedCookies
   }
+  if (cookieRequest) return cookieRequest
 
   // 2. 获取雪球令牌
   if (source === 'xq' || source === 'xueqiu') {
-    const response = await axios.get('https://xueqiu.com/hq', {
+    cookieRequest = request('https://xueqiu.com/hq', {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       withCredentials: true  // 自动接收和保存 Cookie
-    })
+    }).then(response => {
 
-    // 3. 从响应头中提取 Cookie
-    const setCookieHeader = response.headers['set-cookie']
-    const cookies = parseCookies(setCookieHeader)
+      // 3. 从响应头中提取 Cookie
+      const setCookieHeader = response.headers['set-cookie']
+      const cookies = parseCookies(setCookieHeader)
+      if (!cookies.xq_a_token || !cookies.u) throw new Error('Missing market data authentication cookies')
 
-    cachedCookies = {
-      xq_a_token: cookies['xq_a_token'],
-      u: cookies['u']
-    }
+      cachedCookies = {
+        xq_a_token: cookies['xq_a_token'],
+        u: cookies['u']
+      }
 
-    return cachedCookies
+      return cachedCookies
+    }).finally(() => { cookieRequest = undefined })
+    return cookieRequest
   } else {
     throw new Error(`get_token doesn't support ${source} source`)
   }
@@ -71,7 +83,7 @@ export function getStockData(symbolList: string[], config = {}): Promise<Stock[]
     // 创建所有批次的请求
     const requests = batches.map(batch => {
       const symbol = batch.join(',')
-      return axios.get('https://stock.xueqiu.com/v5/stock/batch/quote.json', {
+      return request('https://stock.xueqiu.com/v5/stock/batch/quote.json', {
         params: {
           symbol: symbol,
           extend: 'detail',
@@ -135,7 +147,7 @@ export function getRealtimeQuote(symbolList: string[], config = {}): Promise<Rec
     // 创建所有批次的请求
     const requests = batches.map(batch => {
       const symbol = batch.join(',')
-      return axios.get('https://stock.xueqiu.com/v5/stock/realtime/quotec.json', {
+      return request('https://stock.xueqiu.com/v5/stock/realtime/quotec.json', {
         params: {
           symbol: symbol,
           _: new Date().getTime()
@@ -176,7 +188,7 @@ export function getRealtimeQuote(symbolList: string[], config = {}): Promise<Rec
 export function queryStock(code: string): Promise<[]> {
   return getCookie().then(cookies => {
     // 创建所有批次的请求
-    return axios.get('https://xueqiu.com/query/v1/search/stock.json', {
+    return request('https://xueqiu.com/query/v1/search/stock.json', {
       params: {
         code,
         size: 10
@@ -196,7 +208,7 @@ export function queryStock(code: string): Promise<[]> {
 
 export function getMinuteData(symbol: string, config = {}): Promise<[]> {
   return getCookie().then(cookies => {
-    return axios.get('https://stock.xueqiu.com/v5/stock/chart/minute.json', {
+    return request('https://stock.xueqiu.com/v5/stock/chart/minute.json', {
       params: {
         symbol,
         period: '1d'
@@ -214,7 +226,7 @@ export function getMinuteData(symbol: string, config = {}): Promise<[]> {
   })
 }
 
-interface ExchangeRate {
+export interface ExchangeRate {
   date: string
   base: string
   quote: string
@@ -222,22 +234,47 @@ interface ExchangeRate {
 }
 
 let exchangeRates: ExchangeRate[] = []
-// [{ date: '2026-06-01', base: 'CNY', quote: 'HKD', rate: 1.1585 }, { date: '2026-06-01', base: 'CNY', quote: 'USD', rate: 0.14773 }]
+let exchangeRequest: Promise<ExchangeRate[]> | undefined
+let exchangeFetchedAt: number | null = null
+let exchangeRetryAt = 0
+let exchangeError: string | undefined
+const exchangeTtl = 6 * 60 * 60 * 1000
+
+export function getExchangeRateStatus() {
+  return {
+    stale: exchangeFetchedAt === null || Date.now() - exchangeFetchedAt >= exchangeTtl || !!exchangeError,
+    fetchedAt: exchangeFetchedAt,
+    error: exchangeError
+  }
+}
 
 export function getExchangeRates(): Promise<ExchangeRate[]> {
-  if (!exchangeRates.length || exchangeRates.some(item => !dayjs().isSame(item.date, 'd'))) {
-    return axios.get('https://api.frankfurter.dev/v2/rates', {
-      params: {
-        base: 'CNY',
-        quotes: 'USD,HKD'
-      }
-    }).then(res => {
-      exchangeRates = [...res.data]
-      return Promise.resolve(exchangeRates)
-    }).catch(error => {
-      return Promise.reject(error)
-    })
-  } else {
+  if (exchangeRequest) return exchangeRequest
+  if (exchangeRates.length && (!getExchangeRateStatus().stale || Date.now() < exchangeRetryAt)) {
     return Promise.resolve(exchangeRates)
   }
+  if (Date.now() < exchangeRetryAt) return Promise.reject(new Error(exchangeError))
+  exchangeRequest = request('https://api.frankfurter.dev/v2/rates', {
+    params: {
+      base: 'CNY',
+      quotes: 'USD,HKD'
+    }
+  }).then(res => {
+    const rates = res.data as ExchangeRate[]
+    if (!Array.isArray(rates) || !['USD', 'HKD'].every(currency =>
+      rates.some(rate => rate.base === 'CNY' && rate.quote === currency && Number.isFinite(rate.rate) && rate.rate > 0))) {
+      throw new Error('Invalid exchange rates')
+    }
+    exchangeRates = rates
+    exchangeFetchedAt = Date.now()
+    exchangeRetryAt = 0
+    exchangeError = undefined
+    return exchangeRates
+  }).catch((error: unknown) => {
+    exchangeError = error instanceof Error ? error.message : String(error)
+    exchangeRetryAt = Date.now() + 60000
+    if (exchangeRates.length) return exchangeRates
+    throw error
+  }).finally(() => { exchangeRequest = undefined })
+  return exchangeRequest
 }

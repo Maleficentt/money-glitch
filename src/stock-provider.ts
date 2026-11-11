@@ -81,10 +81,15 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.context.subscriptions.push(this.changeEmitter)
 
-    this.stockManager.onDidChangeStockList((stocks) => {
-      this.stockList = stocks
+    this.context.subscriptions.push(this.stockManager.onDidChangeStockList((stocks) => {
+      const symbols = new Set(this.configManager.getStockSymbols())
+      this.stockList = stocks.filter(stock => symbols.has(stock.symbol))
+      const validKeys = new Set(this.stockList.flatMap(stock => [`ALL_${stock.symbol}`, `${stock.region}_${stock.symbol}`]))
+      for (const key of this.stockCache.keys()) {
+        if (!validKeys.has(key)) this.stockCache.delete(key)
+      }
       this.refresh()
-    })
+    }))
   }
 
   getTreeItem(element: StockTreeItem): vscode.TreeItem {
@@ -99,9 +104,9 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
     if (element instanceof StockGroupItem) {
       if (element.groupKey === 'ALL') {
         return this.stockList.map((stock) => {
-          let item = this.stockCache.get(stock.symbol)
+          const stockId = `${element.groupKey}_${stock.symbol}`
+          let item = this.stockCache.get(stockId)
           if (!item) {
-            const stockId = `${element.groupKey}_${stock.symbol}`
             item = new StockItem(stockId, stock, this.context)
             this.stockCache.set(stockId, item)
           } else {
@@ -113,9 +118,9 @@ class StockTreeProvider implements vscode.TreeDataProvider<StockTreeItem> {
         return this.stockList
           .filter((stock) => stock.region === element.groupKey)
           .map((stock) => {
-            let item = this.stockCache.get(stock.symbol)
+            const stockId = `${element.groupKey}_${stock.symbol}`
+            let item = this.stockCache.get(stockId)
             if (!item) {
-              const stockId = `${element.groupKey}_${stock.symbol}`
               item = new StockItem(stockId, stock, this.context)
               this.stockCache.set(stockId, item)
             } else {

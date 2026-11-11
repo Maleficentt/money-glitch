@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -39,6 +39,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "moneyGlitch.correctDailyProfit",
+        "title": "补录/修正每日收益",
+        "category": "Money Glitch"
+      },
       {
         "command": "moneyGlitch.refreshStocks",
         "title": "刷新",
@@ -262,7 +267,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test",
+    "test": "node --test tests",
+    "test:integration": "vscode-test",
     "package": "vsce package"
   },
   "devDependencies": {

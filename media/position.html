@@ -4,10 +4,10 @@
 <head>
   <title>持仓</title>
   <meta charset="utf-8" />
-  <script src="https://unpkg.com/vue@2"></script>
-  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <script src="https://unpkg.com/vue@2.7.16/dist/vue.min.js"></script>
+  <script src="https://unpkg.com/element-ui@2.15.14/lib/index.js"></script>
   <link rel="stylesheet" href="${styleResetUri}" />
-  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css" />
+  <link rel="stylesheet" href="https://unpkg.com/element-ui@2.15.14/lib/theme-chalk/index.css" />
   <style>
     html,
     body {
@@ -272,6 +272,7 @@
 
 <body>
   <div id="app">
+    <el-alert v-if="rateWarning" title="部分持仓汇率不可用或已过期，收益统计可能不完整" type="warning" :closable="false"></el-alert>
     <div class="header">
       <div class="stat-item">
         <span>总市值</span>
@@ -442,6 +443,8 @@
         lotSize: 100,
         suggestStockList: [],
         loading: false,
+        mutationPending: false,
+        rateWarning: false,
         brokerList: []
       },
       filters: {
@@ -458,6 +461,16 @@
         window.addEventListener('message', (event) => {
           const message = event.data
           switch (message.command) {
+            case 'operationSuccess':
+              this.mutationPending = false
+              if (message.data === 'setStockPosition') this.holdFormVisible = false
+              if (message.data === 'addStockTradeRecord') this.tradeFormVisible = false
+              break
+            case 'operationError':
+              this.mutationPending = false
+              this.loading = false
+              this.$message.error(message.data)
+              break
             case 'init':
               this.init(message.data)
               break
@@ -481,12 +494,18 @@
           this.initStockList(stockList)
         },
         initStockList(data) {
+          this.rateWarning = data.some(item => item.exchangeRateStale)
           const stockList = []
           let totalMarketValue = 0 // 总市值
           let totalProfit = 0 // 总盈亏
           let todayProfit = 0 // 当日盈亏
           data.forEach(item => {
             const result = { ...item }
+            if (item.position && !item.profit && item.position.shares > 0) {
+              result.profit = { totalProfit: '--', totalProfitRate: '--', todayProfit: '--', todayProfitRate: '--' }
+              result.marketValue = '--'
+              stockList.push(result)
+            }
             if (item.profit) {
               const { shares } = item.position
               const { current } = item.quote
@@ -541,11 +560,12 @@
           this.holdFormVisible = true
         },
         submitHoldForm() {
+          if (this.mutationPending) return
+          this.mutationPending = true
           this.vscode.postMessage({
             command: 'setStockPosition',
             data: this.holdFormData
           })
-          this.holdFormVisible = false
         },
         showTradeForm(row, type = '') {
           this.isSpecifyTrade = true
@@ -563,6 +583,8 @@
           if (!this.selectedStock) {
             return this.$message.warning('请选择股票')
           }
+          if (this.mutationPending) return
+          this.mutationPending = true
           this.vscode.postMessage({
             command: 'addStockTradeRecord',
             data: {
@@ -570,7 +592,6 @@
               tradeRecord: this.tradeFormData
             }
           })
-          this.tradeFormVisible = false
         },
         getSuggestStockList(query) {
           if (query) {

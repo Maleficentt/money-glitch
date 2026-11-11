@@ -64,6 +64,7 @@ export interface Stock {
   quote: Quote            // 行情
   position?: Position     // 持仓
   profit?: Profit         // 盈亏
+  exchangeRateStale?: boolean // 收益采用过期缓存汇率
 }
 
 // 过户费率

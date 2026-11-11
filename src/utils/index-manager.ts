@@ -1,27 +1,10 @@
-import dayjs from 'dayjs'
 import ConfigManager from './config-manger'
 import { getMinuteData, getRealtimeQuote, getStockData } from './data-service'
 import { Stock } from './types'
 import { EventEmitter } from 'vscode'
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
-dayjs.extend(isSameOrAfter)
+import { getNextMarketDelay, isCanceled, retryDelay } from './market-time'
 
-// const marketOpenTime: Record<string, string[][]> = {
-//   CN: [['09:15', '11:30'], ['13:00', '15:00']],
-//   HK: [['09:00', '12:00'], ['13:00', '16:00']]
-// }
-
-const marketOpenTime: Record<string, number[][][]> = {
-  CN: [[[9, 15], [11, 30]], [[13], [15]]],
-  HK: [[[9], [12]], [[13], [16]]],
-  US: [[[21, 30], [5]]]
-}
-
-const marketTimerInterval: Record<string, number> = {
-  CN: 2000,
-  HK: 10000,
-  US: 2000
-}
+const marketTimerInterval: Record<string, number> = { CN: 2000, HK: 10000, US: 2000 }
 
 interface MarketController {
   status: number
@@ -31,6 +14,8 @@ interface MarketController {
   quoteTimer: NodeJS.Timeout | null
   minuteAbortController: AbortController
   minuteTimer: NodeJS.Timeout | null
+  quoteFailures: number
+  minuteFailures: number
 }
 class IndexManager {
   private static instance: IndexManager
@@ -40,6 +25,8 @@ class IndexManager {
   private stockDataController = new AbortController()
   private marketController: Record<string, MarketController> = {}
   private minuteDataMap: Record<string, []> = {}
+  private disposed = false
+  private stockDataFailures = 0
   private _onDidChangeStockList = new EventEmitter<Stock[]>()
   readonly onDidChangeStockList = this._onDidChangeStockList.event
   private _onDidChangeMinuteData = new EventEmitter<Record<string, []>>()
@@ -48,74 +35,65 @@ class IndexManager {
   private constructor() { /* empty */ }
 
   static getInstance(): IndexManager {
-    if (!IndexManager.instance) {
-      IndexManager.instance = new IndexManager()
-    }
+    if (!IndexManager.instance) IndexManager.instance = new IndexManager()
     return IndexManager.instance
   }
 
   getStockData(isRefresh = false) {
+    if (this.disposed) return
     this.stockDataController.abort()
-    this.stockDataController = new AbortController()
-    if (isRefresh && this.stockDataTimer) {
-      clearTimeout(this.stockDataTimer)
-    }
-    const stockSymbols = this.configManager.getIndexSymbols()
-    let restSymbols = Array.from(new Set([...stockSymbols]))
+    const request = new AbortController()
+    this.stockDataController = request
+    const isCurrent = () => !this.disposed && !request.signal.aborted && this.stockDataController === request
+    if (this.stockDataTimer) clearTimeout(this.stockDataTimer)
+    this.stopMarketRequests()
+    const symbols = [...new Set(this.configManager.getIndexSymbols())]
+    let restSymbols = symbols
     if (!isRefresh) {
-      const selectedStockList: Stock[] = []
-      this.stockList.forEach(stock => {
-        if (stockSymbols.includes(stock.symbol)) {
-          selectedStockList.push(stock)
-        }
-      })
-      this.stockList = selectedStockList
-      restSymbols = stockSymbols.filter(symbol => !selectedStockList.some(stock => stock.symbol === symbol))
+      this.stockList = this.stockList.filter(stock => symbols.includes(stock.symbol))
+      restSymbols = symbols.filter(symbol => !this.stockList.some(stock => stock.symbol === symbol))
     }
-    if (restSymbols.length) {
-      getStockData(restSymbols, { signal: this.stockDataController.signal }).then(data => {
-        if (isRefresh) {
-          this.stockList = [...data]
-        } else {
-          this.stockList.push(...data)
-        }
-        this._onDidChangeStockList.fire(this.stockList)
-        this.getMarketQuote()
-        if (isRefresh) {
-          this.stockDataTimer = setTimeout(() => {
-            this.getStockData(true)
-          }, 600000)
-        }
-      }).catch(err => {
-        console.log(err)
-        const errData = err.toJSON()
-        if (errData.code !== 'ERR_CANCELED') {
-          this.stockDataTimer = setTimeout(() => {
-            this.getStockData()
-          }, 1000)
-        }
-      })
-    } {
+    if (!restSymbols.length) {
+      if (isRefresh) this.stockList = []
       this._onDidChangeStockList.fire(this.stockList)
+      this.getMarketQuote()
+      return
     }
+    getStockData(restSymbols, { signal: request.signal }).then(data => {
+      if (!isCurrent()) return
+      this.stockDataFailures = 0
+      this.stockList = isRefresh ? data : [...this.stockList, ...data]
+      this._onDidChangeStockList.fire(this.stockList)
+      this.getMarketQuote()
+      this.stockDataTimer = setTimeout(() => {
+        if (isCurrent()) this.getStockData(true)
+      }, 600000)
+    }).catch((error: unknown) => {
+      if (isCurrent() && !isCanceled(error)) {
+        console.error('Failed to refresh indexes', error)
+        this.stockDataTimer = setTimeout(() => {
+          if (isCurrent()) this.getStockData(isRefresh)
+        }, retryDelay(++this.stockDataFailures))
+      }
+    })
+  }
+
+  private stopMarketRequests() {
+    Object.values(this.marketController).forEach(controller => {
+      if (controller.marketTimer) clearTimeout(controller.marketTimer)
+      if (controller.quoteTimer) clearTimeout(controller.quoteTimer)
+      if (controller.minuteTimer) clearTimeout(controller.minuteTimer)
+      controller.quoteAbortController.abort()
+      controller.minuteAbortController.abort()
+    })
+    this.marketController = {}
   }
 
   getMarketQuote() {
-    Object.keys(this.marketController).forEach(region => {
-      const { marketTimer, quoteAbortController, quoteTimer, minuteAbortController, minuteTimer } = this.marketController[region]
-      if (marketTimer) {
-        clearTimeout(marketTimer)
-      }
-      quoteAbortController.abort()
-      if (quoteTimer) {
-        clearTimeout(quoteTimer)
-      }
-      minuteAbortController.abort()
-      if (minuteTimer) {
-        clearTimeout(minuteTimer)
-      }
-    })
-    this.marketController = {}
+    this.stopMarketRequests()
+    if (this.disposed) return
+    const symbols = new Set(this.stockList.map(stock => stock.symbol))
+    this.minuteDataMap = Object.fromEntries(Object.entries(this.minuteDataMap).filter(([symbol]) => symbols.has(symbol)))
     this.stockList.forEach(item => {
       if (this.marketController[item.region]) {
         this.marketController[item.region].status = item.quote.marketStatusId
@@ -128,126 +106,78 @@ class IndexManager {
           marketTimer: null,
           quoteTimer: null,
           minuteAbortController: new AbortController(),
-          minuteTimer: null
+          minuteTimer: null,
+          quoteFailures: 0,
+          minuteFailures: 0
         }
       }
     })
-    // 交易中立刻获取实时行情，计算什么时候收盘
-    // 休盘中算到下一次开盘时间
-    // 已收盘/休市算到第二天开市
-    Object.keys(this.marketController).forEach(region => {
-      const { status } = this.marketController[region]
-      if ([3, 5].includes(status)) { // 交易中
-        this.getRealtimeQuote(region)
-        this.getMinuteData(region)
-        let endTime: number[] = []
-        const timeList = marketOpenTime[region]
-        for (let i = timeList.length - 1; i >= 0; i--) {
-          const starTime = dayjs().set('hour', timeList[i][0][0]).set('minute', timeList[i][0][1] ?? 0)
-          if (dayjs().isSameOrAfter(starTime)) {
-            endTime = timeList[i][1]
-            break
-          }
-        }
-        const countdown = dayjs().set('hour', endTime[0]).set('minute', endTime[1] ?? 0).diff(new Date()) + 1000
-        const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      } else if (status === 1) { // 未开盘
-        const timeList = marketOpenTime[region][0][0]
-        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-        const countdown = startTime.diff(new Date()) + 1000
-        const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      } else if ([4, 7, 8].includes(status)) { // 休盘 / 收盘 TODO: 休市
-        let timeList = marketOpenTime[region][0][0]
-        if (status === 4) { // 休盘
-          timeList = marketOpenTime[region][1][0]
-        }
-        const startTime = dayjs().set('hour', timeList[0]).set('minute', timeList[1] ?? 0)
-        let countdown = 0
-        if (status === 4) { // 休盘
-          countdown = startTime.diff(new Date()) + 1000
-        } else if ([7, 8].includes(status)) { // 收盘
-          countdown = startTime.add(1, 'd').diff(new Date()) + 1000
-        }
-        this.getMinuteData(region, true)
-        const timer = setTimeout(() => {
-          this.stockList = []
-          this.getStockData()
-        }, countdown)
-        this.marketController[region].marketTimer = timer
-      }
+    Object.entries(this.marketController).forEach(([region, controller]) => {
+      const trading = [3, 5].includes(controller.status)
+      if (trading) this.getRealtimeQuote(region)
+      this.getMinuteData(region, !trading)
+      controller.marketTimer = setTimeout(() => {
+        if (!this.disposed && this.marketController[region] === controller) this.getStockData(true)
+      }, getNextMarketDelay(region, controller.status))
     })
   }
 
   private getRealtimeQuote(region: string) {
-    const { symbols, quoteAbortController, quoteTimer } = this.marketController[region]
-    quoteAbortController.abort()
-    if (quoteTimer) {
-      clearTimeout(quoteTimer)
-    }
-    const newAbortController = new AbortController()
-    this.marketController[region].quoteAbortController = newAbortController
-    if (symbols.length) {
-      getRealtimeQuote(symbols, { signal: newAbortController.signal }).then(quoteMap => {
-        this.stockList.forEach(item => {
-          if (quoteMap[item.symbol]) {
-            Object.assign(item.quote, quoteMap[item.symbol])
-          }
-        })
-        this._onDidChangeStockList.fire(this.stockList)
-        this.marketController[region].quoteTimer = setTimeout(() => {
-          this.getRealtimeQuote(region)
-        }, marketTimerInterval[region])
-      }).catch(err => {
-        const errData = err.toJSON()
-        if (errData.code !== 'ERR_CANCELED') {
-          this.marketController[region].quoteTimer = setTimeout(() => {
-            this.getRealtimeQuote(region)
-          }, marketTimerInterval[region])
-        }
+    const controller = this.marketController[region]
+    if (this.disposed || !controller) return
+    controller.quoteAbortController.abort()
+    if (controller.quoteTimer) clearTimeout(controller.quoteTimer)
+    const request = new AbortController()
+    controller.quoteAbortController = request
+    const isCurrent = () => !this.disposed && !request.signal.aborted &&
+      this.marketController[region] === controller && controller.quoteAbortController === request
+    getRealtimeQuote(controller.symbols, { signal: request.signal }).then(quoteMap => {
+      if (!isCurrent()) return
+      controller.quoteFailures = 0
+      this.stockList.forEach(item => {
+        if (quoteMap[item.symbol]) Object.assign(item.quote, quoteMap[item.symbol])
       })
-    }
+      this._onDidChangeStockList.fire(this.stockList)
+      controller.quoteTimer = setTimeout(() => {
+        if (isCurrent()) this.getRealtimeQuote(region)
+      }, marketTimerInterval[region] ?? 10000)
+    }).catch((error: unknown) => {
+      if (isCurrent() && !isCanceled(error)) {
+        console.error('Failed to refresh index quotes', error)
+        controller.quoteTimer = setTimeout(() => {
+          if (isCurrent()) this.getRealtimeQuote(region)
+        }, retryDelay(++controller.quoteFailures, marketTimerInterval[region] ?? 10000))
+      }
+    })
   }
 
   private getMinuteData(region: string, once = false) {
-    const { symbols, minuteAbortController, minuteTimer } = this.marketController[region]
-    if (!once) {
-      minuteAbortController.abort()
-      if (minuteTimer) {
-        clearTimeout(minuteTimer)
-      }
-      const newAbortController = new AbortController()
-      this.marketController[region].minuteAbortController = newAbortController
-    }
-    const requests = symbols.map(symbol => {
-      return getMinuteData(symbol, { signal: this.marketController[region].minuteAbortController.signal }).then(res => {
-        return { [symbol]: res }
-      })
-    })
-    Promise.all(requests).then(resList => {
-      this.minuteDataMap = {}
-      resList.forEach(item => {
-        Object.assign(this.minuteDataMap, item)
-      })
+    const controller = this.marketController[region]
+    if (this.disposed || !controller) return
+    controller.minuteAbortController.abort()
+    if (controller.minuteTimer) clearTimeout(controller.minuteTimer)
+    const request = new AbortController()
+    controller.minuteAbortController = request
+    const isCurrent = () => !this.disposed && !request.signal.aborted &&
+      this.marketController[region] === controller && controller.minuteAbortController === request
+    Promise.all(controller.symbols.map(async symbol => ({
+      symbol, data: await getMinuteData(symbol, { signal: request.signal })
+    }))).then(results => {
+      if (!isCurrent()) return
+      controller.minuteFailures = 0
+      results.forEach(({ symbol, data }) => { this.minuteDataMap[symbol] = data })
       this._onDidChangeMinuteData.fire(this.minuteDataMap)
       if (!once) {
-        this.marketController[region].minuteTimer = setTimeout(() => {
-          this.getMinuteData(region)
+        controller.minuteTimer = setTimeout(() => {
+          if (isCurrent()) this.getMinuteData(region)
         }, 60000)
       }
-    }).catch(err => {
-      const errData = err.toJSON()
-      if (errData.code !== 'ERR_CANCELED') {
-        this.marketController[region].minuteTimer = setTimeout(() => {
-          this.getMinuteData(region, once)
-        }, 60000)
+    }).catch((error: unknown) => {
+      if (isCurrent() && !isCanceled(error)) {
+        console.error('Failed to refresh minute data', error)
+        controller.minuteTimer = setTimeout(() => {
+          if (isCurrent()) this.getMinuteData(region, once)
+        }, retryDelay(++controller.minuteFailures, 10000))
       }
     })
   }
@@ -256,30 +186,20 @@ class IndexManager {
     return this.stockList
   }
 
+  getMinuteDataMap() {
+    return this.minuteDataMap
+  }
+
   refresh() {
+    this.disposed = false
     this.getStockData(true)
   }
 
   dispose() {
+    this.disposed = true
     this.stockDataController.abort()
-    if (this.stockDataTimer) {
-      clearTimeout(this.stockDataTimer)
-    }
-    Object.keys(this.marketController).forEach(region => {
-      const { marketTimer, quoteAbortController, quoteTimer, minuteAbortController, minuteTimer } = this.marketController[region]
-      if (marketTimer) {
-        clearTimeout(marketTimer)
-      }
-      quoteAbortController.abort()
-      if (quoteTimer) {
-        clearTimeout(quoteTimer)
-      }
-      minuteAbortController.abort()
-      if (minuteTimer) {
-        clearTimeout(minuteTimer)
-      }
-    })
-    this.marketController = {}
+    if (this.stockDataTimer) clearTimeout(this.stockDataTimer)
+    this.stopMarketRequests()
   }
 }
 

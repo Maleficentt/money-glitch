@@ -5,6 +5,7 @@ import { StatusBarManager } from './status-bar'
 import createPositionWebview from './utils/position-webview'
 import StockManager from './utils/stock-manager'
 import createSelectedWebview from './utils/selected-webview'
+import IndexManager from './utils/index-manager'
 
 process.env.TZ = 'Asia/Shanghai'
 
@@ -24,7 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: provider
   })
 
-  vscode.workspace.onDidChangeConfiguration(e => {
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('moneyGlitch')) {
       configManager.refreshConfig()
       if (e.affectsConfiguration('moneyGlitch.stockSymbols')) {
@@ -38,11 +39,15 @@ export function activate(context: vscode.ExtensionContext) {
         stockManager.refresh()
         statusBarManager.refresh()
       }
+      if (e.affectsConfiguration('moneyGlitch.monthlyProfit')) {
+        statusBarManager.refresh()
+      }
     }
-  })
+  }))
 
   context.subscriptions.push(
     treeView,
+    vscode.commands.registerCommand('moneyGlitch.correctDailyProfit', () => stockManager.correctDailyProfit()),
     vscode.commands.registerCommand('moneyGlitch.refreshStocks', () =>
       stockManager.refresh()
     ),
@@ -83,6 +88,7 @@ export function activate(context: vscode.ExtensionContext) {
       dispose: () => {
         statusBarManager.dispose()
         stockManager.dispose()
+        IndexManager.getInstance().dispose()
       }
     }
   )
@@ -94,4 +100,5 @@ export function deactivate() {
 
   const stockManager = StockManager.getInstance()
   stockManager.dispose()
+  IndexManager.getInstance().dispose()
 }

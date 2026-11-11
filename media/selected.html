@@ -5,10 +5,10 @@
   <title>Realtime Quote</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/vue@2"></script>
-  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <script src="https://unpkg.com/vue@2.7.16/dist/vue.min.js"></script>
+  <script src="https://unpkg.com/element-ui@2.15.14/lib/index.js"></script>
   <link rel="stylesheet" href="${styleResetUri}" />
-  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css" />
+  <link rel="stylesheet" href="https://unpkg.com/element-ui@2.15.14/lib/theme-chalk/index.css" />
   <style>
     html,
     body {
@@ -400,6 +400,7 @@
 
 <body>
   <div id="app">
+    <el-alert v-if="rateWarning" title="部分持仓汇率不可用或已过期，收益统计可能不完整" type="warning" :closable="false"></el-alert>
     <div class="index-wrapper">
       <div v-for="item in indexList" :key="item.symbol"
         :class="['index-item', { profit: item.quote.current > item.quote.lastClose, loss: item.quote.current < item.quote.lastClose }]">
@@ -716,6 +717,8 @@
         lotSize: 100,
         suggestStockList: [],
         loading: false,
+        mutationPending: false,
+        rateWarning: false,
         brokerList: []
       },
       filters: {
@@ -749,6 +752,16 @@
         window.addEventListener('message', (event) => {
           const message = event.data
           switch (message.command) {
+            case 'operationSuccess':
+              this.mutationPending = false
+              if (message.data === 'setStockPosition') this.holdFormVisible = false
+              if (message.data === 'addStockTradeRecord') this.tradeFormVisible = false
+              break
+            case 'operationError':
+              this.mutationPending = false
+              this.loading = false
+              this.$message.error(message.data)
+              break
             case 'refresh':
               this.init(message.data)
               break
@@ -766,13 +779,16 @@
         })
       },
       methods: {
-        init({ indices, stocks, brokers }) {
+        init({ indices, stocks, holdings, brokers }) {
           if (Array.isArray(indices)) {
             this.indexList = [...indices]
           }
           if (Array.isArray(stocks)) {
             this.stockList = [...stocks]
-            this.holdList = stocks.filter(item => !!item.profit)
+          }
+          if (Array.isArray(holdings)) {
+            this.holdList = holdings.filter(item => item.position && (item.position.shares > 0 || item.profit))
+            this.rateWarning = holdings.some(item => item.exchangeRateStale)
           }
           if (Array.isArray(brokers)) {
             this.brokerList = [...brokers]
@@ -888,11 +904,12 @@
           this.holdFormVisible = true
         },
         submitHoldForm() {
+          if (this.mutationPending) return
+          this.mutationPending = true
           this.vscode.postMessage({
             command: 'setStockPosition',
             data: this.holdFormData
           })
-          this.holdFormVisible = false
         },
         showTradeForm(row, type = '') {
           this.isSpecifyTrade = true
@@ -910,6 +927,8 @@
           if (!this.selectedStock) {
             return this.$message.warning('请选择股票')
           }
+          if (this.mutationPending) return
+          this.mutationPending = true
           this.vscode.postMessage({
             command: 'addStockTradeRecord',
             data: {
@@ -917,7 +936,6 @@
               tradeRecord: this.tradeFormData
             }
           })
-          this.tradeFormVisible = false
         },
         getSuggestStockList(query) {
           if (query) {

@@ -6,6 +6,7 @@ import StockManager from './utils/stock-manager'
 import Decimal from 'decimal.js'
 import dayjs from 'dayjs'
 import { isDefined } from './utils/common'
+import { getMarketDate } from './utils/market-time'
 
 export class StatusBarManager {
   private static instance: StatusBarManager
@@ -15,9 +16,10 @@ export class StatusBarManager {
   private stockList: Stock[] = []
   private readonly MAX_STOCKS = 4
   private profitBarItem: vscode.StatusBarItem | null = null
+  private stockSubscription: vscode.Disposable
 
   private constructor() {
-    this.stockManager.onDidChangeStockList((stocks) => {
+    this.stockSubscription = this.stockManager.onDidChangeStockList((stocks) => {
       this.stockList = stocks
       this.refresh()
     })
@@ -181,7 +183,7 @@ export class StatusBarManager {
       const { current, lastClose } = item.quote
       const price = current || lastClose
       if (price) {
-        totalMarketValue = totalMarketValue.add(new Decimal(current).mul(shares))
+        totalMarketValue = totalMarketValue.add(new Decimal(price).mul(shares))
         totalProfit = totalProfit.add(profit.totalProfit)
         todayProfit = todayProfit.add(profit.todayProfit)
       }
@@ -192,9 +194,11 @@ export class StatusBarManager {
       totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
       todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
-    const monthlyProfitTemp = this.configManager.getConfig<number>('monthlyProfit', 0)
+    const monthlyProfitTemp = this.stockManager.getMonthlyProfit()
+    const today = getMarketDate('CN')
     const unsettledProfit = this.stockList.reduce((sum, stock) =>
-      stock.profit && !this.stockManager.isProfitSettled(stock)
+      stock.region === 'CN' && stock.profit && Number.isFinite(stock.quote.timestamp) &&
+      getMarketDate('CN', stock.quote.timestamp) === today && !this.stockManager.isProfitSettled(stock)
         ? sum.add(stock.profit.todayProfit) : sum, new Decimal(0))
     const monthlyProfit = new Decimal(monthlyProfitTemp).add(unsettledProfit)
     let monthlyProfitRate = '0'
@@ -202,7 +206,16 @@ export class StatusBarManager {
       monthlyProfitRate = monthlyProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
     this.profitBarItem.text = `💰 ${totalProfit} | ${monthlyProfit} | ${todayProfit}`
-    this.profitBarItem.tooltip = `总市值: ${totalMarketValue}  持仓盈亏: ${totalProfit} (${totalProfitRate}%)\r\n 当月盈亏: ${monthlyProfit}（${monthlyProfitRate}%） 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+    const unavailable = this.stockList.filter(stock => stock.position && !stock.profit && stock.position.shares > 0)
+    const staleRates = this.stockList.filter(stock => stock.exchangeRateStale)
+    const dataStatus = [
+      this.stockManager.getRefreshStatus(),
+      unavailable.length ? `收益暂不可用：${unavailable.map(stock => stock.name).join('、')}` : '',
+      staleRates.length ? `使用过期汇率：${staleRates.map(stock => stock.name).join('、')}` : ''
+    ].filter(Boolean).join('\r\n')
+    this.profitBarItem.tooltip = `总市值: ${totalMarketValue}    持仓盈亏: ${totalProfit} (${totalProfitRate}%)\r\n当月盈亏: ${monthlyProfit} (${monthlyProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+      `${this.stockManager.getSettlementStatus()}\r\n` +
+      (dataStatus ? `${dataStatus}\r\n` : '') +
       '-----------------------------\r\n' +
       this.stockList.filter(item => !!item.profit)
         .sort((a, b) => b.profit!.todayProfit - a.profit!.todayProfit)
@@ -218,6 +231,7 @@ export class StatusBarManager {
   }
 
   dispose(): void {
+    this.stockSubscription.dispose()
     this.stockBarItems.forEach(item => item.dispose())
     this.profitBarItem?.dispose()
   }
