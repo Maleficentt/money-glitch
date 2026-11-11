@@ -272,24 +272,24 @@
 
 <body>
   <div id="app">
-    <el-alert v-if="rateWarning" title="部分持仓汇率不可用或已过期，收益统计可能不完整" type="warning" :closable="false"></el-alert>
+    <el-alert v-if="rateWarning" title="部分持仓金额或收益数据不可用，或汇率已过期，统计可能不完整" type="warning" :closable="false"></el-alert>
     <div class="header">
       <div class="stat-item">
-        <span>总市值</span>
-        <span class="stat-value">{{ totalMarketValue | formatNumber }}</span>
+        <span>{{ valuationIncomplete ? '已知市值' : '总市值' }}</span>
+        <span class="stat-value">{{ totalMarketValue | formatMoney }}</span>
       </div>
       <div class="stat-item">
         <span>持仓盈亏</span>
         <div :class="['stat-value', { profit:totalProfit > 0, loss: totalProfit < 0 }]">
-          <span>{{ totalProfit | formatNumber }}</span>
-          <span class="ratio" v-if="!!totalProfit">{{ totalProfitRate }} %</span>
+          <span>{{ totalProfit | formatMoney }}</span>
+          <span class="ratio" v-if="!!totalProfit">{{ totalProfitRate | formatPercent }}</span>
         </div>
       </div>
       <div class="stat-item">
         <span>当日盈亏</span>
         <div :class="['stat-value', { profit:todayProfit > 0, loss: todayProfit < 0 }]">
-          <span>{{ todayProfit | formatNumber }}</span>
-          <span class="ratio" v-if="!!todayProfit">{{ todayProfitRate }} %</span>
+          <span>{{ todayProfit | formatMoney }}</span>
+          <span class="ratio" v-if="!!todayProfit">{{ todayProfitRate | formatPercent }}</span>
         </div>
       </div>
     </div>
@@ -307,24 +307,24 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="marketValue" label="市值" min-width="100" fixed="left" sortable>
+        <el-table-column prop="marketValue" label="市值" min-width="145" fixed="left" sortable>
           <template slot-scope="{ row }">
             <div class="table-cell">
               <span>{{ row.name }}</span>
-              <span>{{ row.marketValue | formatNumber }}</span>
+              <span>{{ row.marketValue | formatMoney }}</span>
             </div>
           </template>
         </el-table-column>
         <el-table-column prop="position.shares" label="持仓" min-width="100"></el-table-column>
-        <el-table-column prop="price" label="现价 | 成本价" min-width="120">
+        <el-table-column prop="positionCny.current" label="现价 | 成本价" min-width="190">
           <template slot-scope="{ row }">
             <div class="table-cell">
-              <span>{{ row.quote.current ? row.quote.current.toFixed(3) : '--' }}</span>
-              <span>{{ row.position.cost }}</span>
+              <span>{{ row.positionCny && row.positionCny.current | formatMoney }}</span>
+              <span>{{ row.positionCny && row.positionCny.cost | formatMoney }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="profit.totalProfit" label="总盈亏" min-width="100" sortable>
+        <el-table-column prop="profit.totalProfit" label="总盈亏" min-width="145" sortable>
           <template slot-scope="{ row }">
             <div :class="['table-cell', { loss: row.profit.totalProfit < 0, profit: row.profit.totalProfit > 0 }]">
               <span>{{ row.profit.totalProfit > 0 ? '+' : '' }}{{ row.profit.totalProfit | formatNumber }}</span>
@@ -332,7 +332,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="profit.todayProfit" label="当日盈亏" min-width="100" sortable>
+        <el-table-column prop="profit.todayProfit" label="当日盈亏" min-width="145" sortable>
           <template slot-scope="{ row }">
             <div :class="['table-cell', {loss: row.profit.todayProfit<0, profit: row.profit.todayProfit>0}]">
               <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfit | formatNumber }}</span>
@@ -342,7 +342,7 @@
         </el-table-column>
         <el-table-column prop="marketValue" label="仓位" min-width="100">
           <template slot-scope="{ row }">
-            <span>{{ calculatePositionRate(row.marketValue) }}%</span>
+            <span>{{ calculatePositionRate(row.marketValue) | formatPercent }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -351,9 +351,9 @@
       <el-button type="primary" size="small" @click="handlePosition">持仓设置</el-button>
       <el-button type="primary" size="small" @click="handleTrade">股票交易</el-button>
     </div>
-    <el-dialog title="持仓设置" :visible.sync="holdFormVisible" width="350px">
+    <el-dialog title="持仓设置" :visible.sync="holdFormVisible" width="450px">
       <div class="tips">注意：修改持仓会清空交易记录</div>
-      <el-form :model="holdFormData" label-width="80px" label-suffix=":">
+      <el-form :model="holdFormData" label-width="140px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="holdFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
             :remote-method="getSuggestStockList" :loading="loading" size="small"
@@ -364,7 +364,7 @@
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="成本">
+        <el-form-item :label="'成本（原币' + (holdCurrency ? ' ' + holdCurrency : '') + '）'">
           <el-input-number v-model="holdFormData.cost" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="数量">
@@ -378,7 +378,7 @@
       </div>
     </el-dialog>
     <el-dialog title="股票交易" :visible.sync="tradeFormVisible" width="500px">
-      <el-form :model="tradeFormData" label-width="120px" label-suffix=":">
+      <el-form :model="tradeFormData" label-width="160px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="tradeFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
             :remote-method="getSuggestStockList" :loading="loading" size="small"
@@ -395,7 +395,7 @@
             <el-option label="卖出" :value="-1"></el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="成交价格">
+        <el-form-item :label="'成交价（原币' + (tradeCurrency ? ' ' + tradeCurrency : '') + '）'">
           <el-input-number v-model="tradeFormData.price" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="成交数量">
@@ -445,9 +445,19 @@
         loading: false,
         mutationPending: false,
         rateWarning: false,
+        valuationIncomplete: false,
+        profitIncomplete: false,
+        holdCurrency: '',
+        tradeCurrency: '',
         brokerList: []
       },
       filters: {
+        formatMoney(value) {
+          return Number.isFinite(value) ? value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '--'
+        },
+        formatPercent(value) {
+          return Number.isFinite(value) ? `${value}%` : '--'
+        },
         formatNumber(val) {
           let num = val
           if (typeof val === 'string') {
@@ -494,43 +504,46 @@
           this.initStockList(stockList)
         },
         initStockList(data) {
-          this.rateWarning = data.some(item => item.exchangeRateStale)
           const stockList = []
           let totalMarketValue = 0 // 总市值
           let totalProfit = 0 // 总盈亏
           let todayProfit = 0 // 当日盈亏
           data.forEach(item => {
+            if (!item.position || !(item.position.shares > 0 || item.profit)) return
             const result = { ...item }
-            if (item.position && !item.profit && item.position.shares > 0) {
+            result.marketValue = item.positionCny && Number.isFinite(item.positionCny.marketValue) ? item.positionCny.marketValue : undefined
+            result.profitUnavailable = !item.positionCny || !item.profit || !Number.isFinite(item.profit.totalProfit) || !Number.isFinite(item.profit.todayProfit)
+            if (result.profitUnavailable) {
               result.profit = { totalProfit: '--', totalProfitRate: '--', todayProfit: '--', todayProfitRate: '--' }
-              result.marketValue = '--'
-              stockList.push(result)
             }
-            if (item.profit) {
-              const { shares } = item.position
-              const { current } = item.quote
-              const marketValue = Math.round(current * 1000) * shares / 1000
-              result.marketValue = marketValue
-              totalMarketValue += marketValue
+            if (Number.isFinite(result.marketValue)) totalMarketValue += result.marketValue
+            if (!result.profitUnavailable) {
               totalProfit += item.profit.totalProfit
               todayProfit += item.profit.todayProfit
-              stockList.push(result)
             }
+            stockList.push(result)
           })
+          this.valuationIncomplete = stockList.some(item => !Number.isFinite(item.marketValue))
+          this.profitIncomplete = stockList.some(item => item.profitUnavailable)
+          this.rateWarning = this.valuationIncomplete || this.profitIncomplete || stockList.some(item => item.exchangeRateStale)
           this.stockList = stockList
-          this.totalMarketValue = totalMarketValue
-          this.totalProfit = totalProfit
-          this.totalProfitRate = totalMarketValue ? Math.round(totalProfit / totalMarketValue * 10000) / 100 : 0
-          this.todayProfit = todayProfit
-          this.todayProfitRate = totalMarketValue ? Math.round(todayProfit / totalMarketValue * 10000) / 100 : 0
+          const hasKnownValues = !stockList.length || stockList.some(item => Number.isFinite(item.marketValue))
+          const hasKnownProfit = !stockList.length || stockList.some(item => !item.profitUnavailable)
+          this.totalMarketValue = hasKnownValues ? Number(totalMarketValue.toFixed(2)) : undefined
+          this.totalProfit = hasKnownProfit ? Number(totalProfit.toFixed(2)) : undefined
+          this.totalProfitRate = this.profitIncomplete ? undefined : this.calculatePositionRate(totalProfit)
+          this.todayProfit = hasKnownProfit ? Number(todayProfit.toFixed(2)) : undefined
+          this.todayProfitRate = this.profitIncomplete ? undefined : this.calculatePositionRate(todayProfit)
         },
         calculatePositionRate(marketValue) {
+          if (this.valuationIncomplete || !Number.isFinite(marketValue) || !Number.isFinite(this.totalMarketValue) || this.totalMarketValue <= 0) return undefined
           return Math.round(marketValue / this.totalMarketValue * 10000) / 100
         },
         handleRowClick(row) {
           this.$refs.table.toggleRowExpansion(row)
         },
         handlePosition() {
+          this.holdCurrency = ''
           this.isSpecifyTrade = false
           this.holdFormData = {
             symbol: '',
@@ -540,6 +553,8 @@
           this.holdFormVisible = true
         },
         handleTrade() {
+          this.tradeCurrency = ''
+          this.selectedStock = null
           this.isSpecifyTrade = false
           this.tradeFormData = {
             symbol: '',
@@ -550,6 +565,7 @@
           this.tradeFormVisible = true
         },
         showHoldForm(row) {
+          this.holdCurrency = row.quote.currency || ''
           this.isSpecifyTrade = true
           this.holdFormData = {
             symbol: row.symbol,
@@ -568,6 +584,7 @@
           })
         },
         showTradeForm(row, type = '') {
+          this.tradeCurrency = row.quote.currency || ''
           this.isSpecifyTrade = true
           this.selectedStock = { ...row }
           this.tradeFormData = {
@@ -606,6 +623,10 @@
         },
         handleSelectedStockChange(symbol, action) {
           const target = this.suggestStockList.find(item => item.code === symbol)
+          if (symbol && !target) return
+          const currency = target && (target.currency || (target.quote && target.quote.currency)) || ''
+          if (action === 'TRADE') this.tradeCurrency = currency
+          if (action === 'HOLD') this.holdCurrency = currency
           if (action === 'TRADE') {
             if (symbol) {
               this.selectedStock = {

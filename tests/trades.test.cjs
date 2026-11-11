@@ -3,8 +3,8 @@ const assert = require('node:assert/strict')
 const Module = require('node:module')
 const path = require('node:path')
 
-function fixture({ positions = {}, rates = [], rateError, stale = false, writeError = false } = {}) {
-  const values = { position: structuredClone(positions), broker: {}, stockSymbols: [] }
+function fixture({ positions = {}, brokers = {}, rates = [], rateError, stale = false, writeError = false } = {}) {
+  const values = { position: structuredClone(positions), broker: structuredClone(brokers), stockSymbols: [] }
   let rateCalls = 0
   let rejectNextWrite = writeError
   const vscode = {
@@ -146,4 +146,122 @@ test('stale foreign quote conversion is marked, and realized profit is converted
   await cached.manager.formatStockList()
   assert.equal(cached.manager.getStockList()[0].profit.todayProfit, 100)
   assert.equal(cached.manager.getStockList()[0].exchangeRateStale, true)
+  assert.equal(cached.manager.getStockList()[0].positionCny.marketValue, 600)
+})
+
+test('mixed holdings expose CNY prices, costs and market values without altering trading data', async () => {
+  const positions = {
+    SH600000: { cost: 10, shares: 100 }, HK00700: { cost: 10, shares: 100 }, AAPL: { cost: 10, shares: 100 }
+  }
+  const f = fixture({ positions, rates: [{ quote: 'HKD', rate: 2 }, { quote: 'USD', rate: 0.125 }] })
+  const stocks = [stock(), stock('HK00700', 'HKD'), { ...stock('AAPL', 'USD'), region: 'US', exchange: 'NASDAQ' }]
+  f.manager.stockList = stocks
+  await f.manager.formatStockList()
+  const results = f.manager.getStockList()
+  assert.deepEqual(results.map(s => s.positionCny), [
+    { currency: 'CNY', current: 12, cost: 10, marketValue: 1200, lastClose: 10 },
+    { currency: 'CNY', current: 6, cost: 5, marketValue: 600, lastClose: 5 },
+    { currency: 'CNY', current: 96, cost: 80, marketValue: 9600, lastClose: 80 }
+  ])
+  assert.deepEqual(results.map(s => s.profit.totalProfit), [200, 100, 1600])
+  assert.deepEqual(results.map(s => s.quote.current), [12, 12, 12])
+  assert.deepEqual(results.map(s => s.position.cost), [10, 10, 10])
+  assert.deepEqual(f.values.position, positions)
+})
+
+test('missing rates clear stale CNY display amounts and missing currency uses market identity', async () => {
+  const f = fixture({ positions: { HK00700: { cost: 10, shares: 100 } } })
+  f.manager.stockList = [{ ...stock('HK00700', 'HKD'), positionCny: { current: 999, cost: 999, marketValue: 999 } }]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].positionCny, undefined)
+  const valid = fixture({ positions: { HK00700: { cost: 10, shares: 100 } }, rates: [{ quote: 'HKD', rate: 2 }] })
+  const missing = stock('HK00700', 'HKD')
+  delete missing.quote.currency
+  valid.manager.stockList = [missing]
+  await valid.manager.formatStockList()
+  assert.equal(valid.manager.getStockList()[0].positionCny.current, 6)
+})
+
+const hkBroker = {
+  commissionRate: 0, stockMinCommission: 0, etfMinCommission: 0,
+  stampTaxRate: 0.0005, transferRate: { value: 0.00001 },
+  hkStockConnect: { commissionRate: 0, minCommission: 0 }
+}
+
+test('HK buy, sell and daily profit use identical statutory fees without double currency conversion', async () => {
+  const f = fixture({ brokers: { test: hkBroker }, rates: [{ quote: 'HKD', rate: 2 }] })
+  const hk = stock('HK00700', 'HKD')
+  await f.manager.buyStock(hk, trade(1, { broker: 'test' }))
+  assert.equal(f.values.position.HK00700.cost, 10.0113)
+  assert.equal(f.values.position.HK00700.tradeRecords[0].fees, 1.13)
+  f.manager.stockList = [hk]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit.todayProfit, 99.44)
+  await f.manager.sellStock(hk, trade(-1, { broker: 'test', price: 12 }))
+  assert.equal(f.values.position.HK00700.tradeRecords[1].fees, 2.15)
+  assert.equal(f.values.position.HK00700.totalProfit, 98.36)
+  f.manager.stockList = [hk]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit.totalProfit, 98.36)
+  assert.equal(f.manager.getStockList()[0].profit.todayProfit, 98.36)
+})
+
+test('HK average cost retains enough precision for a flat-price round trip to equal both fees', async () => {
+  const f = fixture({
+    brokers: { test: { ...hkBroker, hkStockConnect: { commissionRate: 0, minCommission: 5 } } },
+    rates: [{ quote: 'HKD', rate: 2 }]
+  })
+  const hk = stock('HK00700', 'HKD')
+  hk.quote.current = 10
+  await f.manager.buyStock(hk, trade(1, { broker: 'test', shares: 1000 }))
+  assert.equal(f.values.position.HK00700.cost, 10.01628)
+  await f.manager.sellStock(hk, trade(-1, { broker: 'test', shares: 1000 }))
+  assert.deepEqual(f.values.position.HK00700.tradeRecords.map(record => record.fees), [16.28, 16.28])
+  assert.equal(f.values.position.HK00700.totalProfit, -16.28)
+  f.manager.stockList = [hk]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit.totalProfit, -16.28)
+  assert.equal(f.manager.getStockList()[0].profit.todayProfit, -16.28)
+})
+
+test('saved HK fees ignore injected client totals and survive later broker and FX changes', async () => {
+  const rates = [{ quote: 'HKD', rate: 2 }]
+  const f = fixture({ brokers: { test: { ...hkBroker, hkStockConnect: {
+    commissionRate: 0, minCommission: 5, minimumCommissionCurrency: 'CNY'
+  } } }, rates })
+  const hk = stock('HK00700', 'HKD')
+  await f.manager.buyStock(hk, trade(1, { broker: 'test', fees: 9999 }))
+  assert.equal(f.values.position.HK00700.tradeRecords[0].fees, 11.13)
+  assert.equal(f.values.position.HK00700.cost, 10.1113)
+  rates[0].rate = 4
+  f.values.broker.test.hkStockConnect.minCommission = 100
+  f.manager.stockList = [hk]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit.todayProfit, 47.22)
+  assert.equal(f.values.position.HK00700.tradeRecords[0].fees, 11.13)
+  assert.equal(f.values.position.HK00700.cost, 10.1113)
+})
+
+test('legacy HK records without fee snapshots recalculate CNY minimum using the available exchange rate', async () => {
+  const time = require('dayjs')().format('YYYY-MM-DD')
+  const f = fixture({
+    positions: { HK00700: { cost: 10.1113, shares: 100, tradeRecords: [trade(1, { broker: 'test', time })] } },
+    brokers: { test: { ...hkBroker, hkStockConnect: { commissionRate: 0, minCommission: 5, minimumCommissionCurrency: 'CNY' } } },
+    rates: [{ quote: 'HKD', rate: 2 }]
+  })
+  f.manager.stockList = [stock('HK00700', 'HKD')]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit.todayProfit, 94.44)
+  assert.equal(f.values.position.HK00700.tradeRecords[0].fees, undefined)
+})
+
+test('missing or stale FX prevents recording a trade with a CNY minimum commission', async () => {
+  for (const ratesConfig of [{ rates: [] }, { rates: [{ quote: 'HKD', rate: 2 }], stale: true }]) {
+    const f = fixture({
+      brokers: { test: { ...hkBroker, hkStockConnect: { minCommission: 5, minimumCommissionCurrency: 'CNY' } } },
+      ...ratesConfig
+    })
+    await assert.rejects(f.manager.buyStock(stock('HK00700', 'HKD'), trade(1, { broker: 'test' })), /汇率/)
+    assert.deepEqual(f.values.position, {})
+  }
 })

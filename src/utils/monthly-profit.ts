@@ -148,8 +148,7 @@ export class MonthlyProfitLedger {
             const entry = month.days[today] ??= { stocks: {} }
             entry.stocks[symbol] = stock.profit.todayProfit
           }
-          // this.status = waiting.length ? `等待收盘行情：${waiting.join('、')}` : symbols.length ? '今日收益已结算' : ''
-          this.status = waiting.length ? `等待收盘行情` : symbols.length ? '今日收益已结算' : ''
+          this.status = waiting.length ? `等待收盘行情：${waiting.join('、')}` : symbols.length ? '今日收益已结算' : ''
         })
       } catch (error) {
         this.status = '月收益保存失败，将在下次刷新重试'

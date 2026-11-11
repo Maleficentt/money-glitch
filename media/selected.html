@@ -556,15 +556,31 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.current" label="最新" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.current" label="最新" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.current }}</span>
+                <span :class="getClass(row)" v-if="row.positionCny && Number.isFinite(row.positionCny.current) && row.quote.status !== 0">{{ row.positionCny.current | formatMoney }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.chg" label="涨跌" min-width="100" sortable align="right">
+            <el-table-column prop="position.shares" label="持仓数量" min-width="100" sortable align="right"></el-table-column>
+            <el-table-column prop="positionCny.cost" label="成本价" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row)" v-if="row.quote.status !== 0">{{ row.quote.chg }}</span>
+                <span>{{ row.positionCny && row.positionCny.cost | formatMoney }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="positionCny.marketValue" label="持仓市值" min-width="140" sortable align="right">
+              <template slot-scope="{ row }">
+                <span>{{ row.positionCny && row.positionCny.marketValue | formatMoney }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="仓位" min-width="100" align="right">
+              <template slot-scope="{ row }">
+                <span>{{ calculatePositionRate(row.positionCny && row.positionCny.marketValue) | formatPercent }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="positionCny.chg" label="涨跌" min-width="100" sortable align="right">
+              <template slot-scope="{ row }">
+                <span :class="getClass(row)" v-if="row.positionCny && Number.isFinite(row.positionCny.chg) && row.quote.status !== 0">{{ row.positionCny.chg | formatMoney }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
@@ -580,21 +596,21 @@
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.amount" label="成交额" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.amount" label="成交额" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span v-if="row.quote.amount">{{ row.quote.amount | formatAmount }}</span>
+                <span v-if="row.positionCny && Number.isFinite(row.positionCny.amount)">{{ row.positionCny.amount | formatAmount }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.high" label="最高" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.high" label="最高" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'high')" v-if="row.quote.high">{{ row.quote.high }}</span>
+                <span :class="getClass(row, 'high')" v-if="row.positionCny && Number.isFinite(row.positionCny.high)">{{ row.positionCny.high | formatMoney }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.low" label="最低" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.low" label="最低" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span :class="getClass(row, 'low')" v-if="row.quote.low">{{ row.quote.low }}</span>
+                <span :class="getClass(row, 'low')" v-if="row.positionCny && Number.isFinite(row.positionCny.low)">{{ row.positionCny.low | formatMoney }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
@@ -610,15 +626,15 @@
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.marketCapital" label="总市值" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.marketCapital" label="总市值" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span v-if="row.quote.marketCapital">{{ row.quote.marketCapital | formatAmount }}</span>
+                <span v-if="row.positionCny && Number.isFinite(row.positionCny.marketCapital)">{{ row.positionCny.marketCapital | formatAmount }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
-            <el-table-column prop="quote.floatMarketCapital" label="流通市值" min-width="100" sortable align="right">
+            <el-table-column prop="positionCny.floatMarketCapital" label="流通市值" min-width="100" sortable align="right">
               <template slot-scope="{ row }">
-                <span v-if="row.quote.floatMarketCapital">{{ row.quote.floatMarketCapital | formatAmount }}</span>
+                <span v-if="row.positionCny && Number.isFinite(row.positionCny.floatMarketCapital)">{{ row.positionCny.floatMarketCapital | formatAmount }}</span>
                 <span v-else>--</span>
               </template>
             </el-table-column>
@@ -626,9 +642,9 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-    <el-dialog title="持仓设置" :visible.sync="holdFormVisible" width="350px">
+    <el-dialog title="持仓设置" :visible.sync="holdFormVisible" width="450px">
       <div class="tips">注意：修改持仓会清空交易记录</div>
-      <el-form :model="holdFormData" label-width="80px" label-suffix=":">
+      <el-form :model="holdFormData" label-width="140px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="holdFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
             :remote-method="getSuggestStockList" :loading="loading" size="small"
@@ -639,7 +655,7 @@
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="成本">
+        <el-form-item :label="'成本（原币' + (holdCurrency ? ' ' + holdCurrency : '') + '）'">
           <el-input-number v-model="holdFormData.cost" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="数量">
@@ -653,7 +669,7 @@
       </div>
     </el-dialog>
     <el-dialog title="股票交易" :visible.sync="tradeFormVisible" width="500px">
-      <el-form :model="tradeFormData" label-width="120px" label-suffix=":">
+      <el-form :model="tradeFormData" label-width="160px" label-suffix=":">
         <el-form-item label="股票" v-if="!isSpecifyTrade">
           <el-select v-model="tradeFormData.symbol" filterable remote reserve-keyword placeholder="请输入股票名称或股票代码"
             :remote-method="getSuggestStockList" :loading="loading" size="small"
@@ -670,7 +686,7 @@
             <el-option label="卖出" :value="-1"></el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="成交价格">
+        <el-form-item :label="'成交价（原币' + (tradeCurrency ? ' ' + tradeCurrency : '') + '）'">
           <el-input-number v-model="tradeFormData.price" size="small" controls-position="right"></el-input-number>
         </el-form-item>
         <el-form-item label="成交数量">
@@ -699,6 +715,7 @@
         indexList: [],
         stockList: [],
         holdList: [],
+        totalMarketValue: 0,
         holdFormVisible: false,
         holdFormData: {
           symbol: '',
@@ -719,9 +736,18 @@
         loading: false,
         mutationPending: false,
         rateWarning: false,
+        valuationIncomplete: false,
+        holdCurrency: '',
+        tradeCurrency: '',
         brokerList: []
       },
       filters: {
+        formatMoney(value) {
+          return Number.isFinite(value) ? value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '--'
+        },
+        formatPercent(value) {
+          return Number.isFinite(value) ? `${value}%` : '--'
+        },
         formatNumber(val) {
           let num = val
           if (typeof val === 'string') {
@@ -788,11 +814,26 @@
           }
           if (Array.isArray(holdings)) {
             this.holdList = holdings.filter(item => item.position && (item.position.shares > 0 || item.profit))
-            this.rateWarning = holdings.some(item => item.exchangeRateStale)
+            this.valuationIncomplete = this.holdList.some(item => !item.positionCny || !Number.isFinite(item.positionCny.marketValue))
+            this.rateWarning = this.valuationIncomplete || this.holdList.some(item => item.exchangeRateStale)
+            this.totalMarketValue = Number(this.holdList.reduce((sum, item) =>
+              item.positionCny && Number.isFinite(item.positionCny.marketValue) ? sum + item.positionCny.marketValue : sum, 0).toFixed(2))
+            if (this.holdList.length && this.holdList.every(item => !item.positionCny || !Number.isFinite(item.positionCny.marketValue))) this.totalMarketValue = undefined
           }
           if (Array.isArray(brokers)) {
             this.brokerList = [...brokers]
           }
+        },
+        calculatePositionRate(marketValue) {
+          if (this.valuationIncomplete || !Number.isFinite(marketValue) || !Number.isFinite(this.totalMarketValue) || this.totalMarketValue <= 0) return undefined
+          return Math.round(marketValue / this.totalMarketValue * 10000) / 100
+        },
+        getHoldSummary({ columns }) {
+          return columns.map((column, index) => {
+            if (index === 0) return this.valuationIncomplete ? '已知合计' : '合计'
+            if (column.property === 'positionCny.marketValue') return Number.isFinite(this.totalMarketValue) ? this.totalMarketValue.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'
+            return ''
+          })
         },
         initChart(minuteData) {
           setTimeout(() => {
@@ -850,6 +891,10 @@
             }
           } else {
             const target = this.suggestStockList.find(item => item.code === symbol)
+            if (symbol && !target) return
+            const currency = target && (target.currency || (target.quote && target.quote.currency)) || ''
+            if (action === 'TRADE') this.tradeCurrency = currency
+            if (action === 'HOLD') this.holdCurrency = currency
             if (action === 'TRADE') {
               if (symbol) {
                 this.selectedStock = {
@@ -875,6 +920,7 @@
           this.$refs[table].toggleRowExpansion(row)
         },
         handlePosition() {
+          this.holdCurrency = ''
           this.isSpecifyTrade = false
           this.holdFormData = {
             symbol: '',
@@ -884,6 +930,8 @@
           this.holdFormVisible = true
         },
         handleTrade() {
+          this.tradeCurrency = ''
+          this.selectedStock = null
           this.isSpecifyTrade = false
           this.tradeFormData = {
             symbol: '',
@@ -894,6 +942,7 @@
           this.tradeFormVisible = true
         },
         showHoldForm(row) {
+          this.holdCurrency = row.quote.currency || ''
           this.isSpecifyTrade = true
           this.holdFormData = {
             symbol: row.symbol,
@@ -912,6 +961,7 @@
           })
         },
         showTradeForm(row, type = '') {
+          this.tradeCurrency = row.quote.currency || ''
           this.isSpecifyTrade = true
           this.selectedStock = { ...row }
           this.tradeFormData = {

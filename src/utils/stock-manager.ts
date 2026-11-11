@@ -7,7 +7,8 @@ import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
 import { MonthlyProfitLedger } from './monthly-profit'
-import { getTradeFees, validatePosition, validateTrade } from './trade-validation'
+import { getTradeFees, isHongKongStock, requiresHongKongCommissionRate, validatePosition, validateTrade } from './trade-validation'
+import { getPositionCny, getStockCurrency } from './position-currency'
 
 
 const marketTimerInterval: Record<string, number> = {
@@ -166,7 +167,7 @@ class StockManager {
     const stockPosition = this.configManager.getPosition()
     const stockList: Stock[] = []
     let exchangeRates: Awaited<ReturnType<typeof getExchangeRates>> = []
-    const needsExchangeRates = this.stockList.some(stock => stockPosition[stock.symbol] && stock.quote.currency && stock.quote.currency !== 'CNY')
+    const needsExchangeRates = this.stockList.some(stock => stockPosition[stock.symbol] && getStockCurrency(stock) !== 'CNY')
     if (needsExchangeRates) {
       try {
         exchangeRates = await getExchangeRates()
@@ -179,6 +180,7 @@ class StockManager {
       const stock = { ...item }
       delete stock.profit
       delete stock.position
+      delete stock.positionCny
       delete stock.exchangeRateStale
       const position = stockPosition[stock.symbol]
       try {
@@ -190,11 +192,12 @@ class StockManager {
           const diffOpen = Math.floor((getMarketOpenTime(stock.region) - Date.now()) / 60000)
           const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs(timestamp).isSame(record.time, 'day') || (marketStatusId === 1 && diffOpen > 15 && dayjs(timestamp).diff(record.time, 'day') <= 1))
           if (shares || todayTradeRecords.length) {
-            const { lastClose, current, currency, status } = item.quote
+            const { lastClose, current, status } = item.quote
+            const currency = getStockCurrency(stock)
             if (!Number.isFinite(current) || !Number.isFinite(lastClose)) throw new Error('行情价格无效')
             // 总盈亏
             let exchangeRate = 1
-            if (currency && currency !== 'CNY') {
+            if (currency !== 'CNY') {
               const rate = exchangeRates.find(item => item.quote === currency)?.rate
               if (!rate || !Number.isFinite(rate) || rate <= 0) {
                 stockList.push(stock)
@@ -203,6 +206,7 @@ class StockManager {
               exchangeRate = rate
               stock.exchangeRateStale = getExchangeRateStatus().stale
             }
+            stock.positionCny = getPositionCny(stock, exchangeRate)
             const totalProfit = status !== 0
               ? shares
                 ? new Decimal(current).sub(cost).mul(shares)
@@ -224,7 +228,12 @@ class StockManager {
                   for (const record of todayTradeRecords) {
                     const { price: tradePrice, shares: tradeShares } = record
                     validateTrade(record)
-                    const fees = getTradeFees(stock, record, this.configManager.getBrokerMap())
+                    if (record.fees !== undefined && (!Number.isFinite(record.fees) || record.fees < 0)) {
+                      throw new Error('交易费用快照无效')
+                    }
+                    const fees = record.fees === undefined
+                      ? getTradeFees(stock, record, this.configManager.getBrokerMap(), exchangeRate)
+                      : new Decimal(record.fees)
                     if (record.type === 1) {
                       yestShares -= tradeShares
                       restYestShares -= tradeShares
@@ -353,7 +362,8 @@ class StockManager {
   }
 
   private async requireExchangeRate(currency: string): Promise<number> {
-    if (!currency || currency === 'CNY') return 1
+    if (currency === 'CNY') return 1
+    if (!currency) throw new Error('无法确定股票币种，请刷新行情后重试')
     const rates = await getExchangeRates()
     const rate = rates.find(item => item.quote === currency)?.rate
     if (getExchangeRateStatus().stale || !rate || !Number.isFinite(rate) || rate <= 0) {
@@ -362,11 +372,18 @@ class StockManager {
     return rate
   }
 
+  private async calculateTradeFees(stock: Stock, trade: TradeRecord): Promise<Decimal> {
+    const brokers = this.configManager.getBrokerMap()
+    const exchangeRate = requiresHongKongCommissionRate(stock, brokers[trade.broker])
+      ? await this.requireExchangeRate('HKD') : undefined
+    return getTradeFees(stock, trade, brokers, exchangeRate)
+  }
+
   async buyStock(stock: Stock, tradeData: TradeRecord): Promise<void> {
     validateTrade(tradeData)
     if (tradeData.type !== 1) throw new Error('买入交易方向无效')
     const { price, shares } = tradeData
-    const fees = getTradeFees(stock, tradeData, this.configManager.getBrokerMap())
+    const fees = await this.calculateTradeFees(stock, tradeData)
     await this.configManager.updatePositionWith(stock.symbol, async current => {
       const position = current ?? { cost: 0, shares: 0 }
       validatePosition(position)
@@ -374,16 +391,18 @@ class StockManager {
       let capital = new Decimal(position.cost).mul(position.shares).add(new Decimal(price).mul(shares)).add(fees)
       // Realized profit is stored in CNY; convert back before incorporating it into the native cost.
       if (position.shares === 0 && position.totalProfit) {
-        const rate = await this.requireExchangeRate(stock.quote.currency)
+        const rate = await this.requireExchangeRate(getStockCurrency(stock))
         capital = capital.sub(new Decimal(position.totalProfit).mul(rate))
       }
       const tradeRecords = (position.tradeRecords ?? []).filter(item => dayjs().isSame(item.time, 'day'))
       // Subscribe before committing the trade, so a subscription failure cannot cause a duplicate retry.
       await this.configManager.addStockSymbol(stock.symbol)
+      const cost = capital.div(newShares)
       return {
-        cost: Number(capital.div(newShares).toFixed(4)),
+        // Keep HK fee cents intact when distributing them over many shares.
+        cost: isHongKongStock(stock) ? cost.toNumber() : Number(cost.toFixed(4)),
         shares: newShares,
-        tradeRecords: [...tradeRecords, { ...tradeData, time: dayjs().format('YYYY-MM-DD') }]
+        tradeRecords: [...tradeRecords, { ...tradeData, fees: fees.toNumber(), time: dayjs().format('YYYY-MM-DD') }]
       }
     })
   }
@@ -392,7 +411,7 @@ class StockManager {
     validateTrade(tradeData)
     if (tradeData.type !== -1) throw new Error('卖出交易方向无效')
     const { price, shares } = tradeData
-    const fees = getTradeFees(stock, tradeData, this.configManager.getBrokerMap())
+    const fees = await this.calculateTradeFees(stock, tradeData)
     await this.configManager.updatePositionWith(stock.symbol, async current => {
       const position = current ?? { cost: 0, shares: 0 }
       validatePosition(position)
@@ -400,13 +419,14 @@ class StockManager {
       const newShares = position.shares - shares
       const capital = new Decimal(position.cost).mul(position.shares).sub(new Decimal(price).mul(shares)).add(fees)
       const tradeRecords = (position.tradeRecords ?? []).filter(item => dayjs().isSame(item.time, 'day'))
+      const cost = newShares ? capital.div(newShares) : new Decimal(0)
       const next: Position = {
-        cost: newShares ? Number(capital.div(newShares).toFixed(4)) : 0,
+        cost: isHongKongStock(stock) ? cost.toNumber() : Number(cost.toFixed(4)),
         shares: newShares,
-        tradeRecords: [...tradeRecords, { ...tradeData, time: dayjs().format('YYYY-MM-DD') }]
+        tradeRecords: [...tradeRecords, { ...tradeData, fees: fees.toNumber(), time: dayjs().format('YYYY-MM-DD') }]
       }
       if (newShares === 0) {
-        const rate = await this.requireExchangeRate(stock.quote.currency)
+        const rate = await this.requireExchangeRate(getStockCurrency(stock))
         next.totalProfit = Number(capital.negated().div(rate).toFixed(2))
       }
       return next
@@ -418,7 +438,7 @@ class StockManager {
       const typeDisplay = type > 0 ? '买入' : '卖出'
       const price = stock.quote.current || 0
       const inputPrice = await vscode.window.showInputBox({
-        prompt: `请输入${typeDisplay}价格`,
+        prompt: `请输入${typeDisplay}价格（原币：${getStockCurrency(stock) || '未知'}）`,
         value: price ? String(price) : '',
         validateInput: value => Number.isFinite(Number(value)) && Number(value) > 0
           ? undefined : '请输入大于 0 的有限数字'
@@ -447,7 +467,7 @@ class StockManager {
     try {
       const cost = stock.quote.current || 0
       const inputCost = await vscode.window.showInputBox({
-        prompt: '请输入成本',
+        prompt: `请输入成本（原币：${getStockCurrency(stock) || '未知'}）`,
         value: cost ? String(cost) : '',
         validateInput: value => value.trim() && Number.isFinite(Number(value))
           ? undefined : '请输入有限数字成本'

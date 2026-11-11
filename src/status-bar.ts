@@ -1,7 +1,7 @@
 // utils/StatusBarManager.ts
 import * as vscode from 'vscode'
 import ConfigManager from './utils/config-manger'
-import { Position, Stock } from './utils/types'
+import { Stock } from './utils/types'
 import StockManager from './utils/stock-manager'
 import Decimal from 'decimal.js'
 import dayjs from 'dayjs'
@@ -177,13 +177,9 @@ export class StatusBarManager {
     let totalProfit = new Decimal(0) // 总盈亏
     let todayProfit = new Decimal(0) // 当日盈亏
     this.stockList.forEach((item: Stock) => {
-      const { profit } = item
-      if (!profit) return
-      const { shares } = item.position as Position
-      const { current, lastClose } = item.quote
-      const price = current || lastClose
-      if (price) {
-        totalMarketValue = totalMarketValue.add(new Decimal(price).mul(shares))
+      const { profit, positionCny } = item
+      if (positionCny) totalMarketValue = totalMarketValue.add(positionCny.marketValue)
+      if (profit) {
         totalProfit = totalProfit.add(profit.totalProfit)
         todayProfit = todayProfit.add(profit.todayProfit)
       }
@@ -206,16 +202,16 @@ export class StatusBarManager {
       monthlyProfitRate = monthlyProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
     this.profitBarItem.text = `💰 ${totalProfit} | ${monthlyProfit} | ${todayProfit}`
-    const unavailable = this.stockList.filter(stock => stock.position && !stock.profit && stock.position.shares > 0)
-    const staleRates = this.stockList.filter(stock => stock.exchangeRateStale)
-    const dataStatus = [
-      this.stockManager.getRefreshStatus(),
-      unavailable.length ? `收益暂不可用：${unavailable.map(stock => stock.name).join('、')}` : '',
-      staleRates.length ? `使用过期汇率：${staleRates.map(stock => stock.name).join('、')}` : ''
-    ].filter(Boolean).join('\r\n')
+    // const unavailable = this.stockList.filter(stock => stock.position && stock.position.shares > 0 && (!stock.profit || !stock.positionCny))
+    // const staleRates = this.stockList.filter(stock => stock.exchangeRateStale)
+    // const dataStatus = [
+    //   this.stockManager.getRefreshStatus(),
+    //   unavailable.length ? `收益暂不可用：${unavailable.map(stock => stock.name).join('、')}` : '',
+    //   staleRates.length ? `使用过期汇率：${staleRates.map(stock => stock.name).join('、')}` : ''
+    // ].filter(Boolean).join('\r\n')
     this.profitBarItem.tooltip = `总市值: ${totalMarketValue}    持仓盈亏: ${totalProfit} (${totalProfitRate}%)\r\n当月盈亏: ${monthlyProfit} (${monthlyProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
-      `${this.stockManager.getSettlementStatus()}\r\n` +
-      (dataStatus ? `${dataStatus}\r\n` : '') +
+      // `${this.stockManager.getSettlementStatus()}\r\n` +
+      // (dataStatus ? `${dataStatus}\r\n` : '') +
       '-----------------------------\r\n' +
       this.stockList.filter(item => !!item.profit)
         .sort((a, b) => b.profit!.todayProfit - a.profit!.todayProfit)

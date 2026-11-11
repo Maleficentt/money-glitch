@@ -206,3 +206,177 @@ test('HTML scripts parse and keep trade form open until persisted success', () =
     assert.equal(instance.tradeFormVisible, false)
   }
 })
+
+function pageFixture(name) {
+  const html = fs.readFileSync(path.resolve(__dirname, `../media/${name}.html`), 'utf8')
+  let options
+  const sent = []
+  const sandbox = vm.createContext({ Vue: function (value) { options = value }, console, setTimeout })
+  for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) {
+    if (match[1].trim()) new vm.Script(match[1]).runInContext(sandbox)
+  }
+  const page = { ...options.data, vscode: { postMessage: message => sent.push(message) } }
+  for (const [key, method] of Object.entries(options.methods)) page[key] = method.bind(page)
+  return { page, html, sent, filters: options.filters }
+}
+
+function mixedHoldings() {
+  return [
+    ['SH600000', 'CN', 'CNY', 10, 9, 10, 9, 1000, 100],
+    ['00700', 'HK', 'HKD', 20, 15, 16, 12, 1600, 400],
+    ['AAPL', 'US', 'USD', 5, 4, 25, 20, 2500, 500]
+  ].map(([symbol, region, currency, current, cost, cnyCurrent, cnyCost, marketValue, profit]) => ({
+    ...stock(symbol, current), region,
+    quote: { ...stock(symbol, current).quote, currency, high: current + 1, amount: 1234 },
+    position: { shares: 100, cost },
+    positionCny: { currency: 'CNY', current: cnyCurrent, cost: cnyCost, marketValue },
+    profit: { totalProfit: profit, todayProfit: profit / 2, totalProfitRate: 10, todayProfitRate: 5 }
+  }))
+}
+
+function populateHoldings(name, page, holdings) {
+  if (name === 'position') page.initStockList(holdings)
+  else page.init({ holdings, stocks: holdings })
+}
+
+test('both pages aggregate CN/HK/US holdings and weights in CNY without changing raw prices', () => {
+  for (const name of ['position', 'selected']) {
+    const { page, filters } = pageFixture(name)
+    const holdings = mixedHoldings()
+    const original = structuredClone(holdings)
+    populateHoldings(name, page, holdings)
+    assert.equal(page.totalMarketValue, 5100)
+    assert.equal(page.valuationIncomplete, false)
+    assert.equal(page.rateWarning, false)
+    assert.equal(page.calculatePositionRate(1600), 31.37)
+    assert.equal(page.calculatePositionRate(2500), 49.02)
+    assert.equal(filters.formatMoney(0), '0.00')
+    assert.equal(filters.formatMoney(1.234567), '1.2346')
+    if (name === 'position') {
+      assert.equal(page.totalProfit, 1000)
+      assert.equal(page.todayProfit, 500)
+      assert.equal(page.totalProfitRate, 19.61)
+      assert.equal(page.stockList[1].marketValue, 1600)
+    } else {
+      assert.equal(page.stockList[1].quote.current, 20)
+      const summary = page.getHoldSummary({ columns: [{ property: 'name' }, { property: 'positionCny.marketValue' }] })
+      assert.equal(summary[1], '5,100.00')
+    }
+    assert.deepEqual(holdings, original)
+  }
+})
+
+test('unavailable rates show unknown amounts and weights while keeping held stocks editable', () => {
+  for (const name of ['position', 'selected']) {
+    const { page, filters } = pageFixture(name)
+    const holdings = mixedHoldings()
+    delete holdings[1].positionCny
+    delete holdings[1].profit
+    populateHoldings(name, page, holdings)
+    assert.equal(page.totalMarketValue, 3500)
+    assert.equal(page.rateWarning, true)
+    assert.equal(page.valuationIncomplete, true)
+    assert.equal(page.calculatePositionRate(1000), undefined)
+    assert.equal(filters.formatMoney(undefined), '--')
+    assert.equal(filters.formatPercent(page.calculatePositionRate(undefined)), '--')
+    const rows = name === 'position' ? page.stockList : page.holdList
+    assert.equal(rows.length, 3)
+    assert.equal(rows[1].positionCny, undefined)
+    if (name === 'position') {
+      assert.equal(rows[1].marketValue, undefined)
+      assert.equal(rows[1].profit.totalProfit, '--')
+      assert.equal(page.totalProfit, 600)
+    }
+    page.showHoldForm(rows[1])
+    assert.equal(page.holdFormData.cost, 15)
+    assert.equal(page.holdCurrency, 'HKD')
+    populateHoldings(name, page, [holdings[1]])
+    assert.equal(filters.formatMoney(page.totalMarketValue), '--')
+    assert.equal(page.calculatePositionRate(0), undefined)
+    populateHoldings(name, page, [])
+    assert.equal(page.totalMarketValue, 0)
+    assert.equal(page.rateWarning, false)
+  }
+})
+
+test('stale usable CNY valuations remain visible with a warning', () => {
+  for (const name of ['position', 'selected']) {
+    const { page } = pageFixture(name)
+    const holdings = mixedHoldings()
+    holdings[2].exchangeRateStale = true
+    populateHoldings(name, page, holdings)
+    assert.equal(page.totalMarketValue, 5100)
+    assert.equal(page.rateWarning, true)
+    assert.equal(page.valuationIncomplete, false)
+    assert.equal(page.calculatePositionRate(2500), 49.02)
+  }
+})
+
+test('missing profit with valid CNY valuation does not become a complete zero return', () => {
+  const { page, filters } = pageFixture('position')
+  const holdings = mixedHoldings()
+  delete holdings[1].profit
+  page.initStockList(holdings)
+  assert.equal(page.totalMarketValue, 5100)
+  assert.equal(page.totalProfit, 600)
+  assert.equal(page.stockList[1].profit.totalProfit, '--')
+  assert.equal(page.profitIncomplete, true)
+  assert.equal(page.rateWarning, true)
+  assert.equal(page.valuationIncomplete, false)
+  assert.equal(page.totalProfitRate, undefined)
+  assert.equal(page.todayProfitRate, undefined)
+  assert.equal(page.calculatePositionRate(1600), 31.37)
+  page.initStockList([holdings[1]])
+  assert.equal(page.totalMarketValue, 1600)
+  assert.equal(filters.formatMoney(page.totalProfit), '--')
+  assert.equal(filters.formatMoney(page.todayProfit), '--')
+})
+
+test('currency display never replaces native price or cost in edit submissions', () => {
+  for (const name of ['position', 'selected']) {
+    const { page, sent, html } = pageFixture(name)
+    const holdings = mixedHoldings()
+    const original = structuredClone(holdings)
+    populateHoldings(name, page, holdings)
+    const rows = name === 'position' ? page.stockList : page.holdList
+    for (const row of rows) {
+      page.mutationPending = false
+      page.showHoldForm(row)
+      assert.equal(page.holdCurrency, row.quote.currency)
+      page.submitHoldForm()
+      assert.equal(sent.at(-1).data.cost, row.position.cost)
+      page.mutationPending = false
+      page.showTradeForm(row, 1)
+      assert.equal(page.tradeCurrency, row.quote.currency)
+      page.submitTradeForm()
+      assert.equal(sent.at(-1).data.tradeRecord.price, row.quote.current)
+      assert.equal(sent.at(-1).data.stock.quote.current, row.quote.current)
+    }
+    assert.match(html, /成本（原币/)
+    assert.match(html, /成交价（原币/)
+    page.handlePosition()
+    assert.equal(page.holdCurrency, '')
+    page.handleTrade()
+    assert.equal(page.tradeCurrency, '')
+    assert.equal(page.selectedStock, null)
+    assert.deepEqual(holdings, original)
+  }
+})
+
+test('holding templates use CNY fields for every monetary column; watchlist keeps quote prices', () => {
+  const { html: position } = pageFixture('position')
+  const positionTable = position.slice(position.indexOf('<el-table ref="table"'), position.indexOf('</el-table>'))
+  assert.doesNotMatch(positionTable, /row\.quote\.current|row\.position\.cost/)
+  assert.match(positionTable, /row\.positionCny\.current/)
+  assert.match(positionTable, /row\.positionCny\.cost/)
+  const { html: selected } = pageFixture('selected')
+  const start = selected.indexOf('<el-tab-pane label="持仓（人民币元）"')
+  const heldTable = selected.slice(start, selected.indexOf('</el-tab-pane>', start))
+  for (const field of ['current', 'chg', 'amount', 'high', 'low', 'marketCapital', 'floatMarketCapital', 'cost', 'marketValue']) {
+    assert.match(heldTable, new RegExp(`row\\.positionCny\\.${field}`))
+    assert.doesNotMatch(heldTable, new RegExp(`row\\.quote\\.${field}\\b`))
+  }
+  const watchlist = selected.slice(selected.indexOf('<el-tab-pane label="全部"'), start)
+  assert.match(watchlist, /row\.quote\.current/)
+  assert.match(watchlist, /row\.quote\.amount/)
+})

@@ -224,6 +224,26 @@
         },
         "moneyGlitch.broker": {
           "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "hkStockConnect": {
+                "type": "object",
+                "description": "港股通费用配置。比例使用小数（万三为0.0003）；佣金未单独配置时沿用该券商已有参数。税费以港元逐项计算，选择无券商时仍按零费用处理。",
+                "additionalProperties": false,
+                "properties": {
+                  "commissionRate": { "type": "number", "minimum": 0, "description": "港股通净佣金比例（不含下面单独计算的税费）；未填则沿用 commissionRate，请按账户协议设置。" },
+                  "minCommission": { "type": "number", "minimum": 0, "description": "最低佣金；未填则沿用 stockMinCommission 或 etfMinCommission，币种由 minimumCommissionCurrency 指定。" },
+                  "minimumCommissionCurrency": { "type": "string", "enum": ["HKD", "CNY"], "description": "最低佣金币种，默认 HKD。设为 CNY 时按当前可用汇率折算港元。" },
+                  "stampTaxRate": { "type": "number", "minimum": 0, "description": "双向股票印花税比例，默认 0.001；向上取整到港元；ETF 豁免。" },
+                  "tradingFeeRate": { "type": "number", "minimum": 0, "description": "联交所交易费比例，默认 0.0000565。" },
+                  "transactionLevyRate": { "type": "number", "minimum": 0, "description": "证监会交易征费比例，默认 0.000027。" },
+                  "afrcLevyRate": { "type": "number", "minimum": 0, "description": "会财局交易征费比例，默认 0.0000015。" },
+                  "settlementFeeRate": { "type": "number", "minimum": 0, "description": "中国结算港股通股份交收费比例，默认 0.000042。" }
+                }
+              }
+            }
+          },
           "default": {
             "PingAn": {
               "code": "PingAn",
@@ -235,7 +255,15 @@
                 "isBilateral": true
               },
               "stockMinCommission": 5,
-              "etfMinCommission": 5
+              "etfMinCommission": 5,
+              "hkStockConnect": {
+                "minimumCommissionCurrency": "HKD",
+                "stampTaxRate": 0.001,
+                "tradingFeeRate": 0.0000565,
+                "transactionLevyRate": 0.000027,
+                "afrcLevyRate": 0.0000015,
+                "settlementFeeRate": 0.000042
+              }
             },
             "EastMoney": {
               "code": "EastMoney",
@@ -248,7 +276,15 @@
                 "SZ": 0
               },
               "stockMinCommission": 5,
-              "etfMinCommission": 0
+              "etfMinCommission": 0,
+              "hkStockConnect": {
+                "minimumCommissionCurrency": "HKD",
+                "stampTaxRate": 0.001,
+                "tradingFeeRate": 0.0000565,
+                "transactionLevyRate": 0.000027,
+                "afrcLevyRate": 0.0000015,
+                "settlementFeeRate": 0.000042
+              }
             }
           },
           "description": "Brokerage fees"

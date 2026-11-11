@@ -36,22 +36,39 @@ export interface TradeRecord {
   shares: number          // 成交数量
   broker: string          // 劵商
   time?: string           // 成交时间
+  fees?: number           // 成交时计算的总费用快照（股票交易币种）
 }
 // 持仓
 export interface Position {
   symbol?: string              // 股票代码
-  cost: number                 // 成本（元）
+  cost: number                 // 每股成本（股票交易币种）
   shares: number               // 股数
   tradeRecords?: TradeRecord[] // 交易记录
-  totalProfit?: number         // 清仓后总盈亏
+  totalProfit?: number         // 清仓后总盈亏（人民币元）
 }
 
 // 盈利
 export interface Profit {
-  todayProfit: number             // 当日盈亏
+  todayProfit: number             // 当日盈亏（人民币元）
   todayProfitRate: number         // 当日盈亏比（%）
-  totalProfit: number             // 总盈亏
+  totalProfit: number             // 总盈亏（人民币元）
   totalProfitRate: number         // 总盈亏比（%）
+}
+
+// Display-only amounts. Position/Quote retain the trading currency for order entry.
+export interface PositionCny {
+  currency: 'CNY'
+  current: number
+  cost: number
+  marketValue: number
+  chg?: number
+  amount?: number
+  high?: number
+  low?: number
+  open?: number
+  lastClose?: number
+  marketCapital?: number
+  floatMarketCapital?: number
 }
 
 export interface Stock {
@@ -64,6 +81,7 @@ export interface Stock {
   quote: Quote            // 行情
   position?: Position     // 持仓
   profit?: Profit         // 盈亏
+  positionCny?: PositionCny // 持仓金额的人民币展示值，不用于交易回写
   exchangeRateStale?: boolean // 收益采用过期缓存汇率
 }
 
@@ -73,6 +91,17 @@ export type TransferRate = {
 }  & Record<Exclude<string, 'value'>, number>
 
 // 券商
+export interface HongKongConnectFees {
+  commissionRate?: number        // 佣金比例；未配置时沿用券商佣金率
+  minCommission?: number         // 最低佣金；未配置时沿用股票/ETF最低佣金
+  minimumCommissionCurrency?: 'HKD' | 'CNY' // 最低佣金币种，默认HKD
+  stampTaxRate?: number          // 股票印花税，双向，向上取整到港元
+  tradingFeeRate?: number        // 联交所交易费
+  transactionLevyRate?: number   // 证监会交易征费
+  afrcLevyRate?: number          // 会财局交易征费
+  settlementFeeRate?: number     // 港股通股份交收费
+}
+
 export interface Broker {
   code: string                   // 代码
   name: string                   // 名称
@@ -81,4 +110,5 @@ export interface Broker {
   transferRate: TransferRate     // 买入过户费率
   stockMinCommission: number     // 普通股票最小佣金
   etfMinCommission: number       // etf最小佣金
+  hkStockConnect?: HongKongConnectFees // 港股通专用费用；金额计算结果为港元
 }
