@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -247,6 +247,11 @@
             }
           },
           "description": "Brokerage fees"
+        },
+        "moneyGlitch.monthlyProfit": {
+          "type": "number",
+          "default": -7361.65,
+          "description": "The waxing and waning of the month"
         }
       }
     }

@@ -14,6 +14,7 @@ export function activate(context: vscode.ExtensionContext) {
   const configManager = ConfigManager.getInstance()
 
   const stockManager = StockManager.getInstance()
+  stockManager.initializeSettlement(context.globalState)
   stockManager.refresh()
 
   const statusBarManager = StatusBarManager.getInstance()

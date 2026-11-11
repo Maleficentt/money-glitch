@@ -40,6 +40,8 @@ class StockManager {
   private stockDataTimer: NodeJS.Timeout | null = null
   private stockDataController = new AbortController()
   private marketController: Record<string, MarketController> = {}
+  private settlementState?: vscode.Memento
+  private settling = false
   private _onDidChangeStockList = new EventEmitter<Stock[]>()
   readonly onDidChangeStockList = this._onDidChangeStockList.event
 
@@ -298,6 +300,7 @@ class StockManager {
       stockList.push(stock)
     })
     this.stockList = stockList
+    await this.settleMonthlyProfit()
   }
 
   private sort() {
@@ -317,6 +320,55 @@ class StockManager {
 
   refresh() {
     this.getStockData(true)
+  }
+  
+
+  initializeSettlement(state: vscode.Memento) {
+    this.settlementState = state
+  }
+
+  isProfitSettled(stock: Stock): boolean {
+    const date = this.settlementState?.get<{ date: string }>('monthlyProfitSettlement')?.date
+    return stock.region === 'CN' && date === dayjs(stock.quote.timestamp).format('YYYY-MM-DD')
+  }
+
+  private async settleMonthlyProfit() {
+    if (!this.settlementState || this.settling) return
+    this.settling = true
+    try {
+      // Persist the intended value first so a failed settings write can be retried safely.
+      const pending = this.settlementState.get<{ date: string, value: number }>('monthlyProfitPending')
+      if (pending) {
+        await this.configManager.updateConfig('monthlyProfit', pending.value)
+        this.configManager.refreshConfig()
+        await this.settlementState.update('monthlyProfitSettlement', pending)
+        await this.settlementState.update('monthlyProfitPending', undefined)
+      }
+      const today = dayjs().format('YYYY-MM-DD')
+      const previous = this.settlementState.get<{ date: string }>('monthlyProfitSettlement')
+      if (previous && previous.date >= today) return
+      const positions = this.configManager.getPosition()
+      const symbols = Object.keys(positions).filter(symbol => /^(SH|SZ|BJ)/.test(symbol) &&
+        (positions[symbol].shares > 0 || positions[symbol].tradeRecords?.some(record => record.time === today)))
+      if (!symbols.length) return
+      const stocks = symbols.map(symbol => this.stockList.find(stock => stock.symbol === symbol))
+      if (stocks.some(stock => !stock?.profit || stock.region !== 'CN' ||
+        stock.quote.marketStatusId !== 7 || dayjs(stock.quote.timestamp).format('YYYY-MM-DD') !== today ||
+        dayjs(stock.quote.timestamp).hour() < 15 || !Number.isFinite(stock.profit.todayProfit))) return
+      const base = previous && previous.date.slice(0, 7) !== today.slice(0, 7)
+        ? 0 : this.configManager.getConfig<number>('monthlyProfit', 0)
+      const value = Number(stocks.reduce((sum, stock) => sum.add(stock!.profit!.todayProfit), new Decimal(base)).toFixed(2))
+      const settlement = { date: today, value }
+      await this.settlementState.update('monthlyProfitPending', settlement)
+      await this.configManager.updateConfig('monthlyProfit', value)
+      this.configManager.refreshConfig()
+      await this.settlementState.update('monthlyProfitSettlement', settlement)
+      await this.settlementState.update('monthlyProfitPending', undefined)
+    } catch (error) {
+      console.error('Failed to settle monthly profit', error)
+    } finally {
+      this.settling = false
+    }
   }
 
   dispose() {

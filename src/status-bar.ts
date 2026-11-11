@@ -192,8 +192,17 @@ export class StatusBarManager {
       totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
       todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
-    this.profitBarItem.text = `💰 ${totalProfit} | ${todayProfit}`
-    this.profitBarItem.tooltip = `总市值: ${totalMarketValue} 持仓盈亏: ${totalProfit} (${totalProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+    const monthlyProfitTemp = this.configManager.getConfig<number>('monthlyProfit', 0)
+    const unsettledProfit = this.stockList.reduce((sum, stock) =>
+      stock.profit && !this.stockManager.isProfitSettled(stock)
+        ? sum.add(stock.profit.todayProfit) : sum, new Decimal(0))
+    const monthlyProfit = new Decimal(monthlyProfitTemp).add(unsettledProfit)
+    let monthlyProfitRate = '0'
+    if (totalMarketValue.toNumber() > 0) {
+      monthlyProfitRate = monthlyProfit.div(totalMarketValue).mul(100).toFixed(2)
+    }
+    this.profitBarItem.text = `💰 ${totalProfit} | ${monthlyProfit} | ${todayProfit}`
+    this.profitBarItem.tooltip = `总市值: ${totalMarketValue}  持仓盈亏: ${totalProfit} (${totalProfitRate}%)\r\n 当月盈亏: ${monthlyProfit}（${monthlyProfitRate}%） 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
       '-----------------------------\r\n' +
       this.stockList.filter(item => !!item.profit)
         .sort((a, b) => b.profit!.todayProfit - a.profit!.todayProfit)
