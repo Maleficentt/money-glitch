@@ -201,7 +201,10 @@ export class StatusBarManager {
     if (totalMarketValue.toNumber() > 0) {
       monthlyProfitRate = monthlyProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
-    this.profitBarItem.text = `💰 ${totalProfit} | ${monthlyProfit} | ${todayProfit}`
+    const showMonthlyProfit = this.configManager.getConfig('showMonthlyProfit', true)
+    this.profitBarItem.text = showMonthlyProfit
+      ? `💰 ${totalProfit} | ${monthlyProfit} | ${todayProfit}`
+      : `💰 ${totalProfit} | ${todayProfit}`
     // const unavailable = this.stockList.filter(stock => stock.position && stock.position.shares > 0 && (!stock.profit || !stock.positionCny))
     // const staleRates = this.stockList.filter(stock => stock.exchangeRateStale)
     // const dataStatus = [
@@ -209,7 +212,9 @@ export class StatusBarManager {
     //   unavailable.length ? `收益暂不可用：${unavailable.map(stock => stock.name).join('、')}` : '',
     //   staleRates.length ? `使用过期汇率：${staleRates.map(stock => stock.name).join('、')}` : ''
     // ].filter(Boolean).join('\r\n')
-    this.profitBarItem.tooltip = `总市值: ${totalMarketValue}    持仓盈亏: ${totalProfit} (${totalProfitRate}%)\r\n当月盈亏: ${monthlyProfit} (${monthlyProfitRate}%) 当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+    this.profitBarItem.tooltip = `总市值: ${totalMarketValue}  持仓盈亏: ${totalProfit} (${totalProfitRate}%)` +
+      (showMonthlyProfit ? `\r\n当月盈亏: ${monthlyProfit} (${monthlyProfitRate}%)` : '') +
+      `  当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
       // `${this.stockManager.getSettlementStatus()}\r\n` +
       // (dataStatus ? `${dataStatus}\r\n` : '') +
       '-----------------------------\r\n' +

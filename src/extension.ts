@@ -39,7 +39,8 @@ export function activate(context: vscode.ExtensionContext) {
         stockManager.refresh()
         statusBarManager.refresh()
       }
-      if (e.affectsConfiguration('moneyGlitch.monthlyProfit')) {
+      if (e.affectsConfiguration('moneyGlitch.monthlyProfit') ||
+        e.affectsConfiguration('moneyGlitch.showMonthlyProfit')) {
         statusBarManager.refresh()
       }
     }

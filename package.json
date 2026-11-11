@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -291,8 +291,13 @@
         },
         "moneyGlitch.monthlyProfit": {
           "type": "number",
-          "default": -7361.65,
+          "default": 0,
           "description": "The waxing and waning of the month"
+        },
+        "moneyGlitch.showMonthlyProfit": {
+          "type": "boolean",
+          "default": false,
+          "description": "在状态栏及悬浮提示中显示月收益。关闭后仍会自动结算并保存月收益。"
         }
       }
     }

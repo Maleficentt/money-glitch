@@ -30,19 +30,20 @@ test('every monetary quote field is converted while raw quotes and quantities re
   assert.equal(item.quote.percent, 20)
 })
 
-test('status bar totals and percentage denominator use CNY across all holdings', () => {
+test('status bar uses CNY totals and toggles monthly profit without new stock data', () => {
   let onStocks
   const items = []
+  const config = {}
   const stockManager = {
     onDidChangeStockList: callback => { onStocks = callback; return { dispose() {} } },
-    getMonthlyProfit: () => 0, isProfitSettled: () => true,
+    getMonthlyProfit: () => -123.45, isProfitSettled: () => true,
     getSettlementStatus: () => '', getRefreshStatus: () => ''
   }
   const mocks = {
     vscode: { StatusBarAlignment: { Left: 1 }, window: { createStatusBarItem: () => {
       const item = { show() {}, dispose() {} }; items.push(item); return item
     } } },
-    './utils/config-manger': { getInstance: () => ({ getConfig: (_, fallback) => fallback }) },
+    './utils/config-manger': { getInstance: () => ({ getConfig: (key, fallback) => config[key] ?? fallback }) },
     './utils/stock-manager': { getInstance: () => stockManager }
   }
   const filename = require.resolve('../out/status-bar')
@@ -58,11 +59,27 @@ test('status bar totals and percentage denominator use CNY across all holdings',
     profit: { totalProfit: value / 6, todayProfit: value / 6, totalProfitRate: 20, todayProfitRate: 20 }
   }))
   onStocks(stocks)
-  assert.match(items[0].tooltip, /金额单位：人民币元/)
+  assert.equal(items[0].text, '💰 1900 | -123.45 | 1900')
   assert.match(items[0].tooltip, /总市值: 11400/)
   assert.match(items[0].tooltip, /持仓盈亏: 1900 \(16\.67%\)/)
+  assert.match(items[0].tooltip, /当月盈亏: -123\.45 \(-1\.08%\)/)
+  const visibleTooltip = items[0].tooltip
+
+  config.showMonthlyProfit = false
+  manager.refresh()
+  assert.equal(items[0].text, '💰 1900 | 1900')
+  assert.doesNotMatch(items[0].tooltip, /当月盈亏|-123\.45|-1\.08%/)
+  assert.match(items[0].tooltip, /总市值: 11400/)
+  assert.match(items[0].tooltip, /持仓盈亏: 1900 \(16\.67%\)/)
+  assert.match(items[0].tooltip, /当日盈亏: 1900 \(16\.67%\)/)
+
+  config.showMonthlyProfit = true
+  manager.refresh()
+  assert.equal(items[0].text, '💰 1900 | -123.45 | 1900')
+  assert.equal(items[0].tooltip, visibleTooltip)
+
   onStocks([...stocks, { name: '缺汇率', position: { shares: 10 }, quote: {}, region: 'HK' }])
   assert.match(items[0].tooltip, /总市值: 11400/)
-  assert.match(items[0].tooltip, /收益暂不可用：缺汇率/)
+  assert.match(items[0].tooltip, /持仓盈亏: 1900 \(16\.67%\)/)
   manager.dispose()
 })

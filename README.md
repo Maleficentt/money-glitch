@@ -19,6 +19,7 @@ This extension contributes the following settings:
 * `moneyGlitch.statusBarStockSymbols`: List of stock symbol in statusBar.
 * `moneyGlitch.position`: stock position detail
 * `moneyGlitch.monthlyProfit`: 已结算的 A 股月度收益。手动调整此值会作为当月余额调整保留。
+* `moneyGlitch.showMonthlyProfit`: 是否在状态栏及悬浮提示中显示月收益，默认 `true`。设为 `false` 后立即隐藏月收益，自动结算和保存仍正常运行。
 
 ## 持仓金额显示
 
