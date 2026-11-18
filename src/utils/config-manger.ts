@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { Broker, Position } from './types'
 import { validatePosition } from './trade-validation'
+import type { MonthlyProfitConfiguration } from './monthly-profit'
 
 class ConfigManager {
   private static instance: ConfigManager
@@ -26,6 +27,17 @@ class ConfigManager {
 
   refreshConfig() {
     this.config = vscode.workspace.getConfiguration('moneyGlitch')
+  }
+
+  getMonthlyProfitConfiguration(): MonthlyProfitConfiguration {
+    // Read amount and publication token from one snapshot, at the same scope we write.
+    const config = vscode.workspace.getConfiguration('moneyGlitch')
+    const amount = config.inspect<number>('monthlyProfit')
+    const revision = config.inspect<string>('monthlyProfitRevision')
+    return {
+      value: amount?.globalValue ?? amount?.defaultValue ?? 0,
+      revision: revision?.globalValue || undefined
+    }
   }
 
   getStockSymbols(): string[] {

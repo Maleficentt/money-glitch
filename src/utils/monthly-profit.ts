@@ -2,6 +2,13 @@ import type { Memento } from 'vscode'
 import Decimal from 'decimal.js'
 import { Position, Stock } from './types'
 import { getMarketDate } from './market-time'
+import { randomUUID } from 'node:crypto'
+import { SharedJsonStorage } from './shared-json-storage'
+
+export interface MonthlyProfitConfiguration {
+  value: number
+  revision?: string
+}
 
 interface DailyProfit {
   stocks: Record<string, number>
@@ -16,7 +23,8 @@ interface ProfitLedger {
   months: Record<string, MonthProfit>
   publishedMonth?: string
   publishedValue?: number
-  pending?: { month: string, value: number }
+  publishedRevision?: string
+  pending?: { month: string, value: number, revision?: string }
 }
 
 const KEY = 'monthlyProfitLedger'
@@ -29,18 +37,19 @@ export class MonthlyProfitLedger {
 
   constructor(
     private readonly storage: Memento,
-    private readonly readValue: () => number,
-    private readonly writeValue: (value: number) => PromiseLike<void>,
-    private readonly now: () => number = Date.now
+    private readonly readConfiguration: () => MonthlyProfitConfiguration,
+    private readonly writeValue: (value: number, revision: string) => PromiseLike<void>,
+    private readonly now: () => number = Date.now,
+    private readonly sharedStorage?: SharedJsonStorage<ProfitLedger>
   ) {
-    const saved = storage.get<ProfitLedger>(KEY)
+    const saved = sharedStorage?.read() ?? storage.get<ProfitLedger>(KEY)
     if (saved) {
       this.ledger = saved
     } else {
       const pending = storage.get<{ date: string, value: number }>('monthlyProfitPending')
       const legacy = pending ?? storage.get<{ date: string }>('monthlyProfitSettlement')
       const month = legacy?.date.slice(0, 7) ?? this.today().slice(0, 7)
-      const value = pending?.value ?? readValue()
+      const value = pending?.value ?? readConfiguration().value
       this.ledger = {
         months: { [month]: { openingBalance: value, days: {}, legacyDate: legacy?.date } },
         publishedMonth: month,
@@ -63,15 +72,19 @@ export class MonthlyProfitLedger {
   }
 
   getMonthlyProfit(): number {
+    this.reload()
     const month = this.today().slice(0, 7)
-    const configured = this.readValue()
+    const configuration = this.readConfiguration()
+    const configured = configuration.value
     const adjustment = !this.ledger.pending && this.ledger.publishedMonth === month &&
+      configuration.revision === this.ledger.publishedRevision &&
       this.ledger.publishedValue !== undefined && Number.isFinite(configured)
       ? new Decimal(configured).sub(this.ledger.publishedValue) : new Decimal(0)
     return new Decimal(this.total(month)).add(adjustment).toNumber()
   }
 
   isSettled(stock: Stock): boolean {
+    this.reload()
     if (stock.region !== 'CN' || !Number.isFinite(stock.quote.timestamp)) return false
     const date = getMarketDate('CN', stock.quote.timestamp)
     const month = this.ledger.months[date.slice(0, 7)]
@@ -81,45 +94,66 @@ export class MonthlyProfitLedger {
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
-    const result = this.queue.then(operation)
+    const result = this.queue.then(() => this.sharedStorage
+      ? this.sharedStorage.runExclusive(operation) : operation())
     this.queue = result.catch(() => undefined)
     return result
   }
 
   private async save(ledger: ProfitLedger) {
-    await this.storage.update(KEY, ledger)
+    if (this.sharedStorage) await this.sharedStorage.write(ledger)
+    else await this.storage.update(KEY, ledger)
     this.ledger = ledger
   }
 
+  private reload() {
+    const saved = this.sharedStorage ? this.sharedStorage.read() : this.storage.get<ProfitLedger>(KEY)
+    if (saved) this.ledger = saved
+  }
+
   private async publish() {
-    const pending = this.ledger.pending
+    let pending = this.ledger.pending
     if (!pending) return
-    await this.writeValue(pending.value)
+    // Persist the token before either setting is written, including legacy pending writes.
+    if (!pending.revision) {
+      pending = { ...pending, revision: randomUUID() }
+      await this.save({ ...this.ledger, pending })
+    }
+    // A completed settings write may precede a failed final ledger save. Preserve any later manual edit.
+    if (this.readConfiguration().revision !== pending.revision) {
+      await this.writeValue(pending.value, pending.revision!)
+    }
     await this.save({
       ...this.ledger,
       publishedMonth: pending.month,
       publishedValue: pending.value,
+      publishedRevision: pending.revision,
       pending: undefined
     })
   }
 
   private async update(operation: (ledger: ProfitLedger, month: MonthProfit) => void) {
+    // The cross-window lock must cover reload, reconciliation, journal and settings publication.
+    this.reload()
     await this.publish()
     const currentMonth = this.today().slice(0, 7)
     const ledger: ProfitLedger = JSON.parse(JSON.stringify(this.ledger))
     const month = ledger.months[currentMonth] ??= { openingBalance: 0, days: {} }
     // Preserve intentional edits to the public setting as an opening-balance adjustment.
-    const configured = this.readValue()
-    if (ledger.publishedMonth === currentMonth && ledger.publishedValue !== undefined &&
-      Number.isFinite(configured) && configured !== ledger.publishedValue) {
-      month.openingBalance = new Decimal(month.openingBalance).add(configured).sub(ledger.publishedValue).toNumber()
+    const configuration = this.readConfiguration()
+    const configured = configuration.value
+    const manuallyAdjusted = ledger.publishedMonth === currentMonth && ledger.publishedValue !== undefined &&
+      configuration.revision === ledger.publishedRevision &&
+      Number.isFinite(configured) && configured !== ledger.publishedValue
+    if (manuallyAdjusted) {
+      month.openingBalance = new Decimal(month.openingBalance).add(configured).sub(ledger.publishedValue!).toNumber()
     }
     operation(ledger, month)
     const value = this.total(currentMonth, ledger)
-    if (value !== configured || ledger.publishedMonth !== currentMonth || ledger.publishedValue !== value) {
-      ledger.pending = { month: currentMonth, value }
+    if (manuallyAdjusted || !ledger.publishedRevision || ledger.publishedMonth !== currentMonth || ledger.publishedValue !== value) {
+      ledger.pending = { month: currentMonth, value, revision: randomUUID() }
     }
-    if (JSON.stringify(ledger) !== JSON.stringify(this.ledger) || !this.storage.get(KEY)) await this.save(ledger)
+    if (JSON.stringify(ledger) !== JSON.stringify(this.ledger)) await this.save(ledger)
     await this.publish()
   }
 

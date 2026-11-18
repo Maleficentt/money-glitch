@@ -15,7 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
   const configManager = ConfigManager.getInstance()
 
   const stockManager = StockManager.getInstance()
-  stockManager.initializeSettlement(context.globalState)
+  stockManager.initializeSettlement(context.globalState, context.globalStorageUri.fsPath)
   stockManager.refresh()
 
   const statusBarManager = StatusBarManager.getInstance()
@@ -40,6 +40,7 @@ export function activate(context: vscode.ExtensionContext) {
         statusBarManager.refresh()
       }
       if (e.affectsConfiguration('moneyGlitch.monthlyProfit') ||
+        e.affectsConfiguration('moneyGlitch.monthlyProfitRevision') ||
         e.affectsConfiguration('moneyGlitch.showMonthlyProfit')) {
         statusBarManager.refresh()
       }

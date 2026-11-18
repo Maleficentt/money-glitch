@@ -7,6 +7,7 @@ import { EventEmitter } from 'vscode'
 import Decimal from 'decimal.js'
 import * as vscode from 'vscode'
 import { MonthlyProfitLedger } from './monthly-profit'
+import { SharedJsonStorage } from './shared-json-storage'
 import { getTradeFees, isHongKongStock, requiresHongKongCommissionRate, validatePosition, validateTrade } from './trade-validation'
 import { getPositionCny, getStockCurrency } from './position-currency'
 
@@ -296,13 +297,15 @@ class StockManager {
   }
   
 
-  initializeSettlement(state: vscode.Memento) {
+  initializeSettlement(state: vscode.Memento, storageDirectory: string) {
     this.profitLedger = new MonthlyProfitLedger(state,
-      () => this.configManager.getConfig<number>('monthlyProfit', 0),
-      async value => {
+      () => this.configManager.getMonthlyProfitConfiguration(),
+      async (value, revision) => {
         await this.configManager.updateConfig('monthlyProfit', value)
+        // The token follows the amount so delayed configuration snapshots cannot look like manual edits.
+        await this.configManager.updateConfig('monthlyProfitRevision', revision)
         this.configManager.refreshConfig()
-      })
+      }, Date.now, new SharedJsonStorage(storageDirectory))
   }
 
   getMonthlyProfit(): number {

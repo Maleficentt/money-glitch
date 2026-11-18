@@ -370,7 +370,7 @@ test('holding templates use CNY fields for every monetary column; watchlist keep
   assert.match(positionTable, /row\.positionCny\.current/)
   assert.match(positionTable, /row\.positionCny\.cost/)
   const { html: selected } = pageFixture('selected')
-  const start = selected.indexOf('<el-tab-pane label="持仓（人民币元）"')
+  const start = selected.search(/<el-tab-pane\b[^>]*\bname="position"/)
   const heldTable = selected.slice(start, selected.indexOf('</el-tab-pane>', start))
   for (const field of ['current', 'chg', 'amount', 'high', 'low', 'marketCapital', 'floatMarketCapital', 'cost', 'marketValue']) {
     assert.match(heldTable, new RegExp(`row\\.positionCny\\.${field}`))
