@@ -2,7 +2,7 @@
   "name": "money-glitch",
   "displayName": "money-glitch",
   "description": "",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "author": "Maleficentt",
   "license": "MIT",
   "repository": {
@@ -293,6 +293,11 @@
           "type": "number",
           "default": 0,
           "description": "The waxing and waning of the month"
+        },
+        "moneyGlitch.monthlyProfitRevision": {
+          "type": "string",
+          "default": "",
+          "description": "月收益自动写入的内部修订号，用于多窗口同步，请勿手动修改。"
         },
         "moneyGlitch.showMonthlyProfit": {
           "type": "boolean",
