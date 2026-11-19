@@ -164,6 +164,8 @@ test('mixed holdings expose CNY prices, costs and market values without altering
     { currency: 'CNY', current: 96, cost: 80, marketValue: 9600, lastClose: 80 }
   ])
   assert.deepEqual(results.map(s => s.profit.totalProfit), [200, 100, 1600])
+  assert.deepEqual(results.map(s => s.profit.todayProfitBase), [1000, 500, 8000])
+  assert.deepEqual(results.map(s => s.profit.todayProfitRate), [20, 20, 20])
   assert.deepEqual(results.map(s => s.quote.current), [12, 12, 12])
   assert.deepEqual(results.map(s => s.position.cost), [10, 10, 10])
   assert.deepEqual(f.values.position, positions)
@@ -264,4 +266,65 @@ test('missing or stale FX prevents recording a trade with a CNY minimum commissi
     await assert.rejects(f.manager.buyStock(stock('HK00700', 'HKD'), trade(1, { broker: 'test' })), /汇率/)
     assert.deepEqual(f.values.position, {})
   }
+})
+
+test('daily return uses opening value plus buy outlays, including closed and intraday positions', async () => {
+  const time = '2026-11-19'
+  const cases = [
+    { name: 'unchanged holding', shares: 100, profit: 200, base: 1000, rate: 20 },
+    { name: 'losing holding', shares: 100, current: 9, profit: -100, base: 1000, rate: -10 },
+    { name: 'add to yesterday holding', shares: 200, records: [trade(1, { price: 11, fees: 5 })], profit: 295, base: 2105, rate: 14.01 },
+    { name: 'new buy with negative historical cost', shares: 100, cost: -2, records: [trade(1, { fees: 5 })], profit: 195, base: 1005, rate: 19.4 },
+    { name: 'new buy without an opening holding or previous close', shares: 100, lastClose: 0, records: [trade(1, { fees: 5 })], profit: 195, base: 1005, rate: 19.4 },
+    { name: 'partial sale', shares: 40, records: [trade(-1, { price: 11, shares: 60, fees: 6 })], profit: 134, base: 1000, rate: 13.4 },
+    { name: 'full sale', shares: 0, records: [trade(-1, { price: 11, fees: 6 })], profit: 94, base: 1000, rate: 9.4 },
+    { name: 'intraday round trip', shares: 0, records: [trade(1, { fees: 5 }), trade(-1, { price: 11, fees: 6 })], profit: 89, base: 1005, rate: 8.86 },
+    { name: 'sell then rebuy', shares: 100, records: [trade(-1, { price: 11, fees: 6 }), trade(1, { fees: 5 })], profit: 289, base: 2005, rate: 14.41 },
+    { name: 'foreign new buy', shares: 100, currency: 'HKD', records: [trade(1, { fees: 5 })], profit: 97.5, base: 502.5, rate: 19.4 },
+    { name: 'foreign full sale', shares: 0, currency: 'HKD', records: [trade(-1, { price: 11, fees: 6 })], profit: 47, base: 500, rate: 9.4 },
+    { name: 'US buy after Shanghai midnight', shares: 100, currency: 'USD', timestamp: '2026-11-20T01:00:00Z', records: [trade(1, { fees: 5 })], profit: 780, base: 4020, rate: 19.4 }
+  ]
+  for (const scenario of cases) {
+    const currency = scenario.currency ?? 'CNY'
+    const symbol = currency === 'CNY' ? 'SH600000' : currency === 'USD' ? 'AAPL' : 'HK00700'
+    const records = (scenario.records ?? []).map(record => ({ ...record, time }))
+    const f = fixture({ positions: { [symbol]: { cost: scenario.cost ?? 10, shares: scenario.shares, tradeRecords: records } }, rates: [{ quote: 'HKD', rate: 2 }, { quote: 'USD', rate: 0.25 }] })
+    const item = stock(symbol, currency)
+    if (currency === 'USD') { item.region = 'US'; item.exchange = 'NASDAQ' }
+    item.quote.timestamp = Date.parse(scenario.timestamp ?? `${time}T07:00:00Z`)
+    item.quote.lastClose = scenario.lastClose ?? 10
+    item.quote.current = scenario.current ?? 12
+    f.manager.stockList = [item]
+    await f.manager.formatStockList()
+    const result = f.manager.getStockList()[0]
+    assert.equal(result.profit.todayProfit, scenario.profit, scenario.name)
+    assert.equal(result.profit.todayProfitBase, scenario.base, scenario.name)
+    assert.equal(result.profit.todayProfitRate, scenario.rate, scenario.name)
+    if (scenario.shares === 0) assert.equal(result.positionCny.marketValue, 0, scenario.name)
+  }
+})
+
+test('unavailable or inconsistent opening values do not produce a misleading daily percentage', async () => {
+  const time = '2026-11-19'
+  for (const scenario of [
+    { name: 'zero previous close', lastClose: 0 },
+    { name: 'negative previous close', lastClose: -1 },
+    { name: 'negative reconstructed opening shares', lastClose: 10, records: [trade(1, { shares: 200, time })] }
+  ]) {
+    const f = fixture({ positions: { SH600000: { shares: 100, cost: 10, tradeRecords: scenario.records ?? [] } } })
+    const item = stock()
+    item.quote.timestamp = Date.parse(`${time}T07:00:00Z`)
+    item.quote.lastClose = scenario.lastClose
+    f.manager.stockList = [item]
+    await f.manager.formatStockList()
+    const profit = f.manager.getStockList()[0].profit
+    assert.equal(profit.todayProfitBase, undefined, scenario.name)
+    assert.equal(profit.todayProfitRate, undefined, scenario.name)
+  }
+  const f = fixture({ positions: { SH600000: { shares: 100, cost: 10 } } })
+  const item = stock()
+  delete item.quote.lastClose
+  f.manager.stockList = [item]
+  await f.manager.formatStockList()
+  assert.equal(f.manager.getStockList()[0].profit, undefined)
 })

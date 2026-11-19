@@ -56,7 +56,7 @@ test('status bar uses CNY totals and toggles monthly profit without new stock da
     name: ['A股', '港股', '美股'][index], region: ['CN', 'HK', 'US'][index],
     position: { shares: 100, cost: 10 }, quote: { current: 12, timestamp: Date.now() },
     positionCny: { currency: 'CNY', current: value / 100, cost: 10, marketValue: value },
-    profit: { totalProfit: value / 6, todayProfit: value / 6, totalProfitRate: 20, todayProfitRate: 20 }
+    profit: { totalProfit: value / 6, todayProfit: value / 6, todayProfitBase: value * 5 / 6, totalProfitRate: 20, todayProfitRate: 20 }
   }))
   onStocks(stocks)
   assert.equal(items[0].text, '💰 1900 | -123.45 | 1900')
@@ -71,7 +71,7 @@ test('status bar uses CNY totals and toggles monthly profit without new stock da
   assert.doesNotMatch(items[0].tooltip, /当月盈亏|-123\.45|-1\.08%/)
   assert.match(items[0].tooltip, /总市值: 11400/)
   assert.match(items[0].tooltip, /持仓盈亏: 1900 \(16\.67%\)/)
-  assert.match(items[0].tooltip, /当日盈亏: 1900 \(16\.67%\)/)
+  assert.match(items[0].tooltip, /当日盈亏: 1900 \(20\.00%\)/)
 
   config.showMonthlyProfit = true
   manager.refresh()
@@ -81,5 +81,23 @@ test('status bar uses CNY totals and toggles monthly profit without new stock da
   onStocks([...stocks, { name: '缺汇率', position: { shares: 10 }, quote: {}, region: 'HK' }])
   assert.match(items[0].tooltip, /总市值: 11400/)
   assert.match(items[0].tooltip, /持仓盈亏: 1900 \(16\.67%\)/)
+  assert.match(items[0].tooltip, /当日盈亏: 1900 \(--\)/)
+
+  const closed = {
+    name: '今日清仓', region: 'CN', position: { shares: 0, cost: 0 }, quote: { timestamp: Date.now() },
+    positionCny: { currency: 'CNY', current: 12, cost: 0, marketValue: 0 },
+    profit: { totalProfit: 100, todayProfit: 100, todayProfitBase: 1000, totalProfitRate: 0, todayProfitRate: 10 }
+  }
+  onStocks([closed])
+  assert.match(items[0].tooltip, /总市值: 0/)
+  assert.match(items[0].tooltip, /当日盈亏: 100 \(10\.00%\)/)
+  onStocks([...stocks, closed])
+  assert.match(items[0].tooltip, /当日盈亏: 2000 \(19\.05%\)/)
+
+  for (const base of [undefined, NaN, -1, 0]) {
+    onStocks([{ ...closed, profit: { ...closed.profit, todayProfitBase: base, todayProfitRate: undefined } }])
+    assert.match(items[0].tooltip, /当日盈亏: 100 \(--\)/)
+    assert.doesNotMatch(items[0].tooltip, /undefined%|NaN%|Infinity%/)
+  }
   manager.dispose()
 })

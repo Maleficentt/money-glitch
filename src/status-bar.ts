@@ -176,19 +176,30 @@ export class StatusBarManager {
     let totalMarketValue = new Decimal(0) // 总市值
     let totalProfit = new Decimal(0) // 总盈亏
     let todayProfit = new Decimal(0) // 当日盈亏
+    let todayProfitBase = new Decimal(0)
+    let todayProfitComplete = true
     this.stockList.forEach((item: Stock) => {
       const { profit, positionCny } = item
       if (positionCny) totalMarketValue = totalMarketValue.add(positionCny.marketValue)
       if (profit) {
         totalProfit = totalProfit.add(profit.totalProfit)
         todayProfit = todayProfit.add(profit.todayProfit)
+        if (Number.isFinite(profit.todayProfitBase) && profit.todayProfitBase! >= 0 &&
+          Number.isFinite(profit.todayProfit) && positionCny) {
+          todayProfitBase = todayProfitBase.add(profit.todayProfitBase!)
+        } else {
+          todayProfitComplete = false
+        }
+      } else if (item.position && (item.position.shares > 0 || item.position.tradeRecords?.some(record =>
+        record.time === getMarketDate(item.region, Number.isFinite(item.quote.timestamp) ? item.quote.timestamp : Date.now())))) {
+        todayProfitComplete = false
       }
     })
     let totalProfitRate = '0'
-    let todayProfitRate = '0'
+    const todayProfitRate = todayProfitComplete && todayProfitBase.gt(0)
+      ? `${todayProfit.div(todayProfitBase).mul(100).toFixed(2)}%` : '--'
     if (totalMarketValue.toNumber() > 0) {
       totalProfitRate = totalProfit.div(totalMarketValue).mul(100).toFixed(2)
-      todayProfitRate = todayProfit.div(totalMarketValue).mul(100).toFixed(2)
     }
     const monthlyProfitTemp = this.stockManager.getMonthlyProfit()
     const today = getMarketDate('CN')
@@ -214,14 +225,15 @@ export class StatusBarManager {
     // ].filter(Boolean).join('\r\n')
     this.profitBarItem.tooltip = `总市值: ${totalMarketValue}  持仓盈亏: ${totalProfit} (${totalProfitRate}%)` +
       (showMonthlyProfit ? `\r\n当月盈亏: ${monthlyProfit} (${monthlyProfitRate}%)` : '') +
-      `  当日盈亏: ${todayProfit} (${todayProfitRate}%)\r\n` +
+      `  当日盈亏: ${todayProfit} (${todayProfitRate})\r\n` +
       // `${this.stockManager.getSettlementStatus()}\r\n` +
       // (dataStatus ? `${dataStatus}\r\n` : '') +
       '-----------------------------\r\n' +
       this.stockList.filter(item => !!item.profit)
         .sort((a, b) => b.profit!.todayProfit - a.profit!.todayProfit)
         .map((v) => {
-          return `${v.name} 持仓盈亏: ${v.profit!.totalProfit} (${v.profit!.totalProfitRate}%) 当日盈亏: ${v.profit!.todayProfit} (${v.profit!.todayProfitRate}%) `
+          const dailyRate = Number.isFinite(v.profit!.todayProfitRate) ? `${v.profit!.todayProfitRate}%` : '--'
+          return `${v.name} 持仓盈亏: ${v.profit!.totalProfit} (${v.profit!.totalProfitRate}%) 当日盈亏: ${v.profit!.todayProfit} (${dailyRate}) `
         })
         .join('\r\n-----------------------------\r\n')
     this.profitBarItem.command = {

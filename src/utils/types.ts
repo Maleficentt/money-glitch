@@ -50,7 +50,8 @@ export interface Position {
 // 盈利
 export interface Profit {
   todayProfit: number             // 当日盈亏（人民币元）
-  todayProfitRate: number         // 当日盈亏比（%）
+  todayProfitBase?: number        // 日初持仓市值 + 当日买入金额及买入费用（人民币元）
+  todayProfitRate?: number        // 当日盈亏比（%）；无有效分母时不可用
   totalProfit: number             // 总盈亏（人民币元）
   totalProfitRate: number         // 总盈亏比（%）
 }

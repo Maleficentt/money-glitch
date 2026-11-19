@@ -336,7 +336,7 @@
           <template slot-scope="{ row }">
             <div :class="['table-cell', {loss: row.profit.todayProfit<0, profit: row.profit.todayProfit>0}]">
               <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfit | formatNumber }}</span>
-              <span>{{ row.profit.todayProfit > 0 ? '+' : '' }}{{ row.profit.todayProfitRate }}%</span>
+              <span>{{ Number.isFinite(row.profit.todayProfitRate) && row.profit.todayProfitRate > 0 ? '+' : '' }}{{ row.profit.todayProfitRate | formatPercent }}</span>
             </div>
           </template>
         </el-table-column>
@@ -508,6 +508,8 @@
           let totalMarketValue = 0 // 总市值
           let totalProfit = 0 // 总盈亏
           let todayProfit = 0 // 当日盈亏
+          let todayProfitBase = 0 // 昨收持仓市值与当日买入支出的人民币合计
+          let todayRateIncomplete = false
           data.forEach(item => {
             if (!item.position || !(item.position.shares > 0 || item.profit)) return
             const result = { ...item }
@@ -520,12 +522,17 @@
             if (!result.profitUnavailable) {
               totalProfit += item.profit.totalProfit
               todayProfit += item.profit.todayProfit
+              if (Number.isFinite(item.profit.todayProfitBase) && item.profit.todayProfitBase >= 0) {
+                todayProfitBase += item.profit.todayProfitBase
+              } else {
+                todayRateIncomplete = true
+              }
             }
             stockList.push(result)
           })
           this.valuationIncomplete = stockList.some(item => !Number.isFinite(item.marketValue))
           this.profitIncomplete = stockList.some(item => item.profitUnavailable)
-          this.rateWarning = this.valuationIncomplete || this.profitIncomplete || stockList.some(item => item.exchangeRateStale)
+          this.rateWarning = this.valuationIncomplete || this.profitIncomplete || todayRateIncomplete || stockList.some(item => item.exchangeRateStale)
           this.stockList = stockList
           const hasKnownValues = !stockList.length || stockList.some(item => Number.isFinite(item.marketValue))
           const hasKnownProfit = !stockList.length || stockList.some(item => !item.profitUnavailable)
@@ -533,7 +540,11 @@
           this.totalProfit = hasKnownProfit ? Number(totalProfit.toFixed(2)) : undefined
           this.totalProfitRate = this.profitIncomplete ? undefined : this.calculatePositionRate(totalProfit)
           this.todayProfit = hasKnownProfit ? Number(todayProfit.toFixed(2)) : undefined
-          this.todayProfitRate = this.profitIncomplete ? undefined : this.calculatePositionRate(todayProfit)
+          const dailyRate = todayProfit / todayProfitBase * 100
+          // Round half away from zero, allowing for floating-point noise at a half-cent boundary.
+          const magnitude = Math.abs(dailyRate)
+          this.todayProfitRate = this.profitIncomplete || todayRateIncomplete || !Number.isFinite(todayProfitBase) || todayProfitBase <= 0 || !Number.isFinite(dailyRate)
+            ? undefined : Math.sign(dailyRate) * Math.round((magnitude + Number.EPSILON * Math.max(1, magnitude)) * 100) / 100
         },
         calculatePositionRate(marketValue) {
           if (this.valuationIncomplete || !Number.isFinite(marketValue) || !Number.isFinite(this.totalMarketValue) || this.totalMarketValue <= 0) return undefined

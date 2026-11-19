@@ -230,7 +230,11 @@ function mixedHoldings() {
     quote: { ...stock(symbol, current).quote, currency, high: current + 1, amount: 1234 },
     position: { shares: 100, cost },
     positionCny: { currency: 'CNY', current: cnyCurrent, cost: cnyCost, marketValue },
-    profit: { totalProfit: profit, todayProfit: profit / 2, totalProfitRate: 10, todayProfitRate: 5 }
+    profit: {
+      totalProfit: profit, todayProfit: profit / 2, totalProfitRate: 10,
+      todayProfitBase: marketValue - profit / 2,
+      todayProfitRate: Number((profit / 2 / (marketValue - profit / 2) * 100).toFixed(2))
+    }
   }))
 }
 
@@ -255,6 +259,7 @@ test('both pages aggregate CN/HK/US holdings and weights in CNY without changing
     if (name === 'position') {
       assert.equal(page.totalProfit, 1000)
       assert.equal(page.todayProfit, 500)
+      assert.equal(page.todayProfitRate, 10.87)
       assert.equal(page.totalProfitRate, 19.61)
       assert.equal(page.stockList[1].marketValue, 1600)
     } else {
@@ -264,6 +269,74 @@ test('both pages aggregate CN/HK/US holdings and weights in CNY without changing
     }
     assert.deepEqual(holdings, original)
   }
+})
+
+test('daily percentage includes positions fully sold today even when current market value is zero', () => {
+  const { page } = pageFixture('position')
+  const closed = mixedHoldings()[0]
+  closed.position.shares = 0
+  closed.positionCny.marketValue = 0
+  closed.profit = { totalProfit: 100, totalProfitRate: 10, todayProfit: 100, todayProfitRate: 10, todayProfitBase: 1000 }
+  page.initStockList([closed])
+  assert.equal(page.stockList.length, 1)
+  assert.equal(page.totalMarketValue, 0)
+  assert.equal(page.todayProfit, 100)
+  assert.equal(page.todayProfitRate, 10)
+
+  const held = mixedHoldings()[1]
+  held.profit.todayProfitBase = 2000
+  page.initStockList([closed, held])
+  assert.equal(page.todayProfit, 300)
+  assert.equal(page.todayProfitRate, 10)
+  assert.equal(page.totalMarketValue, 1600)
+
+  closed.profit.todayProfit = -100
+  page.initStockList([closed])
+  assert.equal(page.todayProfitRate, -10)
+})
+
+test('daily percentages round positive and negative half values consistently', () => {
+  const { page } = pageFixture('position')
+  const holding = mixedHoldings()[0]
+  holding.profit.todayProfitBase = 200
+  for (const [profit, expected] of [[0.29, 0.15], [-0.29, -0.15], [0, 0]]) {
+    holding.profit.todayProfit = profit
+    page.initStockList([holding])
+    assert.equal(page.todayProfitRate, expected)
+  }
+})
+
+test('invalid daily bases hide the percentage while preserving known profit and position weights', () => {
+  const { page, filters, html } = pageFixture('position')
+  for (const base of [undefined, NaN, Infinity, -1]) {
+    const holdings = mixedHoldings()
+    holdings[1].profit.todayProfitBase = base
+    holdings[1].profit.todayProfitRate = undefined
+    page.initStockList(holdings)
+    assert.equal(page.todayProfit, 500)
+    assert.equal(page.todayProfitRate, undefined)
+    assert.equal(filters.formatPercent(page.todayProfitRate), '--')
+    assert.equal(filters.formatPercent(page.stockList[1].profit.todayProfitRate), '--')
+    assert.equal(page.totalProfitRate, 19.61)
+    assert.equal(page.calculatePositionRate(1600), 31.37)
+    assert.equal(page.rateWarning, true)
+  }
+  assert.match(html, /row\.profit\.todayProfitRate \| formatPercent/)
+
+  const zeroBase = mixedHoldings()[0]
+  zeroBase.profit.todayProfitBase = 0
+  zeroBase.profit.todayProfit = 0
+  page.initStockList([zeroBase])
+  assert.equal(page.todayProfitRate, undefined)
+  assert.equal(page.rateWarning, false)
+
+  const knownBase = mixedHoldings()[1]
+  knownBase.profit.todayProfitBase = 2000
+  page.initStockList([zeroBase, knownBase])
+  assert.equal(page.todayProfitRate, 10)
+
+  page.initStockList([])
+  assert.equal(page.todayProfitRate, undefined)
 })
 
 test('unavailable rates show unknown amounts and weights while keeping held stocks editable', () => {

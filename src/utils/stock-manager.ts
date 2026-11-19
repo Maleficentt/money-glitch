@@ -191,7 +191,11 @@ class StockManager {
           const { cost, shares, tradeRecords, totalProfit: pTotalProfit } = position
           const { marketStatusId, timestamp } = item.quote
           const diffOpen = Math.floor((getMarketOpenTime(stock.region) - Date.now()) / 60000)
-          const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => dayjs(timestamp).isSame(record.time, 'day') || (marketStatusId === 1 && diffOpen > 15 && dayjs(timestamp).diff(record.time, 'day') <= 1))
+          const quoteDate = getMarketDate(stock.region, timestamp)
+          const todayTradeRecords: TradeRecord[] = (tradeRecords || []).filter((record: TradeRecord) => {
+            const daysAgo = dayjs(quoteDate).diff(record.time, 'day')
+            return record.time === quoteDate || (marketStatusId === 1 && diffOpen > 15 && daysAgo >= 0 && daysAgo <= 1)
+          })
           if (shares || todayTradeRecords.length) {
             const { lastClose, current, status } = item.quote
             const currency = getStockCurrency(stock)
@@ -218,11 +222,13 @@ class StockManager {
               ? new Decimal(current).sub(cost).div(cost).mul(100).toFixed(2)
               : '0'
             let todayProfit = new Decimal(0)
-            let todayProfitRate = '0'
+            let todayBase: Decimal | undefined = status !== 0 && lastClose > 0
+              ? new Decimal(lastClose).mul(shares) : undefined
             if (status !== 0) {
               if (marketStatusId !== 1 || diffOpen > 15) { // 开盘前15分钟重置当日盈亏
                 todayProfit = new Decimal(current).sub(lastClose).mul(shares) // 当日盈亏
                 let yestShares = shares
+                let buyOutlay = new Decimal(0)
                 if (todayTradeRecords.length > 0) {
                   let restYestShares = shares
                   let tradeProfit = new Decimal(0)
@@ -236,6 +242,7 @@ class StockManager {
                       ? getTradeFees(stock, record, this.configManager.getBrokerMap(), exchangeRate)
                       : new Decimal(record.fees)
                     if (record.type === 1) {
+                      buyOutlay = buyOutlay.add(new Decimal(tradePrice).mul(tradeShares)).add(fees)
                       yestShares -= tradeShares
                       restYestShares -= tradeShares
                       const currentTradeProfit = new Decimal(current).sub(tradePrice).mul(tradeShares)
@@ -248,16 +255,21 @@ class StockManager {
                   }
                   todayProfit = new Decimal(current).sub(lastClose).mul(restYestShares).add(tradeProfit)
                 }
-                // 当日盈亏百分比 = 当日盈亏金额 ÷ 当日初始持仓市值 × 100%
-                const todayBase = yestShares ? new Decimal(yestShares).mul(lastClose) : new Decimal(cost).mul(shares)
-                todayProfitRate = todayBase.isZero() ? '0' : todayProfit.div(todayBase).mul(100).toFixed(2)
+                // Keep sold positions in the opening value and include all purchases, even after a round trip.
+                todayBase = yestShares >= 0 && (yestShares === 0 || lastClose > 0)
+                  ? new Decimal(yestShares).mul(lastClose).add(buyOutlay) : undefined
               }
             }
+            const todayProfitCny = Number(todayProfit.div(exchangeRate).toFixed(2))
+            const convertedBase = todayBase?.div(exchangeRate).toNumber()
+            const todayProfitBase = Number.isFinite(convertedBase) ? convertedBase : undefined
             stock.profit = {
               totalProfit: Number((shares ? totalProfit.div(exchangeRate) : totalProfit).toFixed(2)),
               totalProfitRate: Number(totalProfitRate),
-              todayProfit: Number(todayProfit.div(exchangeRate).toFixed(2)),
-              todayProfitRate: todayProfitRate ? Number(todayProfitRate) : 0
+              todayProfit: todayProfitCny,
+              todayProfitBase,
+              todayProfitRate: todayProfitBase !== undefined && todayProfitBase > 0
+                ? Number(new Decimal(todayProfitCny).div(todayProfitBase).mul(100).toFixed(2)) : undefined
             }
           }
 
